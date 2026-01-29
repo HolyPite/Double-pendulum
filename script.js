@@ -7,66 +7,159 @@ const pauseBtn = document.getElementById('pauseBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsModal = document.getElementById('settingsModal');
 const closeSettings = document.getElementById('closeSettings');
+const dynamicSettingsDiv = document.getElementById('dynamic-settings');
+const inpN = document.getElementById('inp_n');
+const valN = document.getElementById('val_n');
 
 let width, height, cx, cy;
 
-// Paramètres physiques initiaux
-let r1 = 150; 
-let r2 = 150; 
-let m1 = 15;  
-let m2 = 15;  
-let a1 = Math.PI / 2; 
-let a2 = Math.PI / 2; 
-let a1_v = 0; 
-let a2_v = 0; 
-let g = 0.8;  
-let f_drag = 0.999; // Facteur de friction (1 = aucune friction)
-
-// Couleurs
-let c_m1 = '#e74c3c';
-let c_m2 = '#f1c40f';
-let c_tr = '#3498db';
-
-// Inputs Management
-const inputs = {
-    r1: { el: document.getElementById('inp_r1'), val: document.getElementById('val_r1'), set: v => r1 = +v },
-    r2: { el: document.getElementById('inp_r2'), val: document.getElementById('val_r2'), set: v => r2 = +v },
-    m1: { el: document.getElementById('inp_m1'), val: document.getElementById('val_m1'), set: v => m1 = +v },
-    m2: { el: document.getElementById('inp_m2'), val: document.getElementById('val_m2'), set: v => m2 = +v },
-    g:  { el: document.getElementById('inp_g'),  val: document.getElementById('val_g'),  set: v => g  = +v },
-    f:  { el: document.getElementById('inp_f'),  val: document.getElementById('val_f'),  set: v => {
-            // Conversion 0-100% resistance -> multiplicateur (ex: 10% res -> 0.999)
-            // Plus simple: mapped to 0.9 (res max) -> 1.0 (res min)
-            // Slider value 0 (no res) -> 1.0 multiplier
-            // Slider value 100 (high res) -> 0.9 multiplier
-            f_drag = 1 - (v / 1000); 
-        }},
-    c1: { el: document.getElementById('col_m1'), set: v => c_m1 = v },
-    c2: { el: document.getElementById('col_m2'), set: v => c_m2 = v },
-    ct: { el: document.getElementById('col_tr'), set: v => c_tr = v }
-};
-
-// Initialisation des listeners pour les inputs
-Object.keys(inputs).forEach(k => {
-    const item = inputs[k];
-    item.el.addEventListener('input', (e) => {
-        item.set(e.target.value);
-        if(item.val) item.val.textContent = e.target.value;
-    });
-});
-
-// Modal Logic
-settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
-closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
-settingsModal.addEventListener('click', (e) => {
-    if (e.target === settingsModal) settingsModal.classList.add('hidden');
-});
-
-// État de l'interaction
-let dragging = null; // null, 1 ou 2
-let isPaused = false;
+// --- CONFIGURATION ---
+let N = 2; // Nombre de bras
+let g = 0.8;
+let f_drag = 0.999;
 let trail = [];
 const maxTrail = 500;
+let isPaused = false;
+let dragging = -1; // Index du bras en cours de drag (-1 si aucun)
+
+// Structure de données pour chaque bras
+// arms[i] contient : length (r), mass (m), angle (a), velocity (v), accel (acc), color (c)
+let arms = [];
+let c_tr = '#3498db'; // Couleur trace
+
+// --- MATHS HELPERS ---
+
+// Résolution de système linéaire Ax = B par élimination de Gauss
+// A est une matrice NxN aplatie ou tableau 2D, B est un tableau de longueur N
+function solveLinearSystem(A, B) {
+    const n = B.length;
+    // Copie pour ne pas modifier l'original
+    const mat = A.map(row => [...row]);
+    const res = [...B];
+
+    for (let i = 0; i < n; i++) {
+        // Pivot
+        let maxEl = Math.abs(mat[i][i]);
+        let maxRow = i;
+        for (let k = i + 1; k < n; k++) {
+            if (Math.abs(mat[k][i]) > maxEl) {
+                maxEl = Math.abs(mat[k][i]);
+                maxRow = k;
+            }
+        }
+
+        // Swap rows
+        [mat[maxRow], mat[i]] = [mat[i], mat[maxRow]];
+        [res[maxRow], res[i]] = [res[i], res[maxRow]];
+
+        // Eliminate
+        for (let k = i + 1; k < n; k++) {
+            const c = -mat[k][i] / mat[i][i];
+            for (let j = i; j < n; j++) {
+                if (i === j) {
+                    mat[k][j] = 0;
+                } else {
+                    mat[k][j] += c * mat[i][j];
+                }
+            }
+            res[k] += c * res[i];
+        }
+    }
+
+    // Back substitution
+    const x = new Array(n).fill(0);
+    for (let i = n - 1; i >= 0; i--) {
+        let sum = 0;
+        for (let j = i + 1; j < n; j++) {
+            sum += mat[i][j] * x[j];
+        }
+        x[i] = (res[i] - sum) / mat[i][i];
+    }
+    return x;
+}
+
+// --- INITIALISATION ---
+
+function initArms(num) {
+    N = num;
+    arms = [];
+    for (let i = 0; i < N; i++) {
+        arms.push({
+            r: 150 - (i * 10), // Un peu plus court à chaque fois
+            m: 10,
+            a: Math.PI / 2 + (i * 0.1), // Légère courbe
+            v: 0,
+            color: i === 0 ? '#e74c3c' : (i === N - 1 ? '#f1c40f' : '#ecf0f1') 
+        });
+    }
+    trail = [];
+    generateSettingsUI();
+}
+
+function generateSettingsUI() {
+    dynamicSettingsDiv.innerHTML = '';
+
+    // --- Physique Globale ---
+    const physGroup = document.createElement('div');
+    physGroup.className = 'setting-group';
+    physGroup.innerHTML = `<h3>Physique Globale</h3>
+        <label>Gravité: <span id="val_g">${g}</span></label>
+        <input type="range" id="inp_g" min="0" max="2" step="0.1" value="${g}">
+        <label>Résistance: <span id="val_f">${Math.round((1 - f_drag)*1000)}</span>%</label>
+        <input type="range" id="inp_f" min="0" max="100" step="1" value="${(1 - f_drag)*1000}">
+        <label>Couleur Trace</label>
+        <input type="color" id="inp_ctr" value="${c_tr}">
+    `;
+    dynamicSettingsDiv.appendChild(physGroup);
+
+    // Listeners Globaux
+    physGroup.querySelector('#inp_g').addEventListener('input', e => { g = +e.target.value; physGroup.querySelector('#val_g').textContent = g; });
+    physGroup.querySelector('#inp_f').addEventListener('input', e => { 
+        f_drag = 1 - (e.target.value / 1000); 
+        physGroup.querySelector('#val_f').textContent = e.target.value; 
+    });
+    physGroup.querySelector('#inp_ctr').addEventListener('input', e => { c_tr = e.target.value; });
+
+    // --- Paramètres par Bras ---
+    // Pour ne pas surcharger, on met juste Masse et Longueur par bras
+    const armGroup = document.createElement('div');
+    armGroup.className = 'setting-group';
+    armGroup.innerHTML = `<h3>Détails des Bras</h3>`;
+    
+    arms.forEach((arm, i) => {
+        const div = document.createElement('div');
+        div.style.marginBottom = '15px';
+        div.style.borderBottom = '1px dashed #444';
+        div.style.paddingBottom = '10px';
+        div.innerHTML = `
+            <div style="font-weight:bold; color:#3498db; margin-bottom:5px;">Bras ${i + 1}</div>
+            <label>Longueur: <span id="val_r${i}">${arm.r}</span></label>
+            <input type="range" id="inp_r${i}" min="20" max="300" value="${arm.r}">
+            <label>Masse: <span id="val_m${i}">${arm.m}</span></label>
+            <input type="range" id="inp_m${i}" min="1" max="100" value="${arm.m}">
+            <label>Couleur</label>
+            <input type="color" id="inp_c${i}" value="${arm.color}">
+        `;
+        armGroup.appendChild(div);
+
+        // Listeners différés (après insertion)
+        setTimeout(() => {
+            document.getElementById(`inp_r${i}`).addEventListener('input', e => { arm.r = +e.target.value; document.getElementById(`val_r${i}`).textContent = arm.r; });
+            document.getElementById(`inp_m${i}`).addEventListener('input', e => { arm.m = +e.target.value; document.getElementById(`val_m${i}`).textContent = arm.m; });
+            document.getElementById(`inp_c${i}`).addEventListener('input', e => { arm.color = e.target.value; });
+        }, 0);
+    });
+    dynamicSettingsDiv.appendChild(armGroup);
+}
+
+// Event Listener pour changer N
+inpN.addEventListener('input', (e) => {
+    const val = +e.target.value;
+    valN.textContent = val;
+    initArms(val);
+});
+
+// --- ENGINE ---
 
 function resize() {
     width = window.innerWidth;
@@ -76,179 +169,227 @@ function resize() {
     cx = width / 2;
     cy = height / 3;
 }
-
 window.addEventListener('resize', resize);
 resize();
 
-resetBtn.addEventListener('click', () => {
-    trail = [];
-});
-
+resetBtn.addEventListener('click', () => trail = []);
 pauseBtn.addEventListener('click', () => {
     isPaused = !isPaused;
     pauseBtn.textContent = isPaused ? 'Reprendre' : 'Pause';
     pauseBtn.classList.toggle('paused', isPaused);
 });
 
-// Calcul des positions
+// Modal Logic
+settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
+closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
+settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) settingsModal.classList.add('hidden'); });
+
 function getPositions() {
-    const x1 = cx + r1 * Math.sin(a1);
-    const y1 = cy + r1 * Math.cos(a1);
-    const x2 = x1 + r2 * Math.sin(a2);
-    const y2 = y1 + r2 * Math.cos(a2);
-    return { x1, y1, x2, y2 };
+    let x = cx;
+    let y = cy;
+    const positions = [];
+    for (let i = 0; i < N; i++) {
+        x += arms[i].r * Math.sin(arms[i].a);
+        y += arms[i].r * Math.cos(arms[i].a);
+        positions.push({ x, y });
+    }
+    return positions;
 }
 
-// Interaction souris
+// --- INTERACTION ---
 canvas.addEventListener('mousedown', (e) => {
-    const { x1, y1, x2, y2 } = getPositions();
-    const dist1 = Math.hypot(e.clientX - x1, e.clientY - y1);
-    const dist2 = Math.hypot(e.clientX - x2, e.clientY - y2);
+    const positions = getPositions();
+    const mx = e.clientX;
+    const my = e.clientY;
 
-    // Ajuster la zone de clic en fonction de la masse (visuel)
-    if (dist2 < m2 + 20) {
-        dragging = 2;
-    } else if (dist1 < m1 + 20) {
-        dragging = 1;
+    // Check collision inverse (du bout vers la base pour prioriser le bout)
+    for (let i = N - 1; i >= 0; i--) {
+        const dist = Math.hypot(mx - positions[i].x, my - positions[i].y);
+        // Rayon de clic approx
+        const radius = Math.sqrt(arms[i].m) * 3 + 10; 
+        if (dist < radius) {
+            dragging = i;
+            return;
+        }
     }
 });
 
 window.addEventListener('mouseup', () => {
-    if (dragging) {
-        // Reset vitesse si on vient de lâcher, ou on peut lancer...
-        a1_v = 0;
-        a2_v = 0;
-        dragging = null;
+    if (dragging !== -1) {
+        // Reset velocities
+        for(let a of arms) a.v = 0;
+        dragging = -1;
     }
 });
 
 window.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
+    if (dragging === -1) return;
 
     const mx = e.clientX;
     const my = e.clientY;
 
-    if (dragging === 1) {
-        const dx = mx - cx;
-        const dy = my - cy;
-        a1 = Math.atan2(dx, dy);
-    } else if (dragging === 2) {
-        // Cinématique Inverse (Inverse Kinematics)
-        let dx = mx - cx;
-        let dy = my - cy;
-        let d = Math.hypot(dx, dy);
-
-        const maxLen = r1 + r2;
-        if (d > maxLen) {
-            const ratio = maxLen / d;
-            dx *= ratio;
-            dy *= ratio;
-            d = maxLen;
+    // Logique simplifiée de drag: "Inverse Kinematics" simple (FABRIK light)
+    // Pour l'instant, on fait simple : on pointe le bras sélectionné vers la souris
+    // Et on résout géométriquement vers l'arrière
+    
+    if (dragging === N - 1) {
+        // Drag du bout (IK) - version simplifiée géométrique ("Pulling the rope")
+        // On modifie les angles pour atteindre la cible si possible
+        // Note: Une vraie IK pour N-pendules est complexe.
+        // Hack visuel simple : On oriente le dernier bras vers la souris, 
+        // puis on remonte.
+        
+        // Approche simple : On bouge juste l'angle du bras précédent pour aligner
+        // Pour N > 2 c'est dur.
+        // Fallback: Si on drag le bout, on fait une FABRIK très basique sur 1 itération
+        
+        let targetX = mx;
+        let targetY = my;
+        
+        // On parcourt de la fin vers le début (sauf la base fixe)
+        // C'est dur de mapper ça directement aux angles sans casser la physique future.
+        // Solution robuste : "Geometric Pull"
+        // On calcule la pos du parent du noeud draggué
+        let prevX = cx, prevY = cy;
+        if (dragging > 0) {
+            const pos = getPositions();
+            prevX = pos[dragging-1].x;
+            prevY = pos[dragging-1].y;
         }
-
-        const angleToTarget = Math.atan2(dx, dy);
         
-        let cosAlpha = (r1 * r1 + d * d - r2 * r2) / (2 * r1 * d);
-        if (cosAlpha > 1) cosAlpha = 1;
-        if (cosAlpha < -1) cosAlpha = -1;
-        
-        const alpha = Math.acos(cosAlpha);
-
-        a1 = angleToTarget - alpha;
-
-        const newX1 = cx + r1 * Math.sin(a1);
-        const newY1 = cy + r1 * Math.cos(a1);
-        
-        const dx2 = (cx + dx) - newX1;
-        const dy2 = (cy + dy) - newY1;
-        
-        a2 = Math.atan2(dx2, dy2);
+        const dx = mx - prevX;
+        const dy = my - prevY;
+        arms[dragging].a = Math.atan2(dx, dy);
+    } else {
+        // Drag d'un noeud intermédiaire
+        // On calcule l'angle par rapport au noeud précédent
+        let prevX = cx, prevY = cy;
+        if (dragging > 0) {
+            const pos = getPositions();
+            prevX = pos[dragging-1].x;
+            prevY = pos[dragging-1].y;
+        }
+        const dx = mx - prevX;
+        const dy = my - prevY;
+        arms[dragging].a = Math.atan2(dx, dy);
     }
-    trail = []; 
+    
+    trail = [];
 });
 
+// --- UPDATE LOOP ---
+
 function update() {
-    if (!dragging && !isPaused) {
-        // Équations du double pendule (Lagrangien)
-        let num1 = -g * (2 * m1 + m2) * Math.sin(a1);
-        let num2 = -m2 * g * Math.sin(a1 - 2 * a2);
-        let num3 = -2 * Math.sin(a1 - a2) * m2;
-        let num4 = a2_v * a2_v * r2 + a1_v * a1_v * r1 * Math.cos(a1 - a2);
-        let den = r1 * (2 * m1 + m2 - m2 * Math.cos(2 * a1 - 2 * a2));
-        let a1_a = (num1 + num2 + num3 * num4) / den;
+    if (dragging === -1 && !isPaused) {
+        // Formulation Matricielle M * alpha = F
+        // M est symétrique
+        const M = Array(N).fill(0).map(() => Array(N).fill(0));
+        const F = Array(N).fill(0);
 
-        num1 = 2 * Math.sin(a1 - a2);
-        num2 = (a1_v * a1_v * r1 * (m1 + m2));
-        num3 = g * (m1 + m2) * Math.cos(a1);
-        num4 = a2_v * a2_v * r2 * m2 * Math.cos(a1 - a2);
-        den = r2 * (2 * m1 + m2 - m2 * Math.cos(2 * a1 - 2 * a2));
-        let a2_a = (num1 * (num2 + num3 + num4)) / den;
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+                // Terme de Masse M_ij
+                // M_ij = cos(th_i - th_j) * L_i * L_j * Sum(m_k) pour k = max(i,j) à N-1
+                
+                let massSum = 0;
+                for (let k = Math.max(i, j); k < N; k++) {
+                    massSum += arms[k].m;
+                }
+                
+                M[i][j] = massSum * arms[i].r * arms[j].r * Math.cos(arms[i].a - arms[j].a);
+            }
 
-        a1_v += a1_a;
-        a2_v += a2_a;
-        a1 += a1_v;
-        a2 += a2_v;
+            // Vecteur Force F_i
+            // Gravité + Coriolis/Centripète
+            let gravityTerm = 0;
+            let coriolisTerm = 0;
 
-        // Friction dynamique
-        a1_v *= f_drag;
-        a2_v *= f_drag;
+            // Gravité: - Sum(m_k) * g * L_i * sin(th_i)
+            let massSumG = 0;
+            for (let k = i; k < N; k++) {
+                massSumG += arms[k].m;
+            }
+            gravityTerm = -massSumG * g * arms[i].r * Math.sin(arms[i].a);
+
+            // Coriolis: - Sum(m_k * L_i * L_j * v_j^2 * sin(th_i - th_j))
+            for (let j = 0; j < N; j++) {
+                let massSumC = 0;
+                for (let k = Math.max(i, j); k < N; k++) {
+                    massSumC += arms[k].m;
+                }
+                coriolisTerm -= massSumC * arms[i].r * arms[j].r * (arms[j].v * arms[j].v) * Math.sin(arms[i].a - arms[j].a);
+            }
+
+            F[i] = gravityTerm + coriolisTerm;
+        }
+
+        // Résoudre pour les accélérations
+        const accel = solveLinearSystem(M, F);
+
+        // Intégration Euler Semi-Implicite
+        for (let i = 0; i < N; i++) {
+            arms[i].v += accel[i];
+            arms[i].v *= f_drag; // Friction
+            arms[i].a += arms[i].v;
+        }
     }
 
-    if (!isPaused || dragging) {
-        const { x2, y2 } = getPositions();
-        trail.push({ x: x2, y: y2 });
+    if (!isPaused || dragging !== -1) {
+        const pos = getPositions();
+        // Trace sur le dernier élément
+        trail.push({ x: pos[N-1].x, y: pos[N-1].y });
         if (trail.length > maxTrail) trail.shift();
     }
 }
 
 function draw() {
     ctx.clearRect(0, 0, width, height);
+    const positions = getPositions();
 
-    const { x1, y1, x2, y2 } = getPositions();
-
-    // Dessin de la trace
-    ctx.beginPath();
-    ctx.strokeStyle = c_tr; // Couleur dynamique trace
-    ctx.globalAlpha = 0.5;
-    ctx.lineWidth = 2;
-    for (let i = 0; i < trail.length; i++) {
-        const p = trail[i];
-        if (i === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
+    // Trace
+    if (trail.length > 1) {
+        ctx.beginPath();
+        ctx.strokeStyle = c_tr;
+        ctx.lineWidth = 2;
+        // Dégradé d'opacité optionnel ? Non, simple pour l'instant
+        ctx.globalAlpha = 0.6;
+        ctx.moveTo(trail[0].x, trail[0].y);
+        for (let i = 1; i < trail.length; i++) {
+            ctx.lineTo(trail[i].x, trail[i].y);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
     }
-    ctx.stroke();
-    ctx.globalAlpha = 1.0;
 
-    // Bras 1
-    ctx.beginPath();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 4;
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(x1, y1);
-    ctx.stroke();
+    // Pendules
+    let prevX = cx;
+    let prevY = cy;
 
-    // Bras 2
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
+    for (let i = 0; i < N; i++) {
+        const p = positions[i];
+        
+        // Tige
+        ctx.beginPath();
+        ctx.moveTo(prevX, prevY);
+        ctx.lineTo(p.x, p.y);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
 
-    // Masse 1
-    ctx.beginPath();
-    ctx.fillStyle = c_m1; // Couleur dynamique masse 1
-    ctx.arc(x1, y1, m1, 0, Math.PI * 2); // Rayon basé sur la masse
-    ctx.fill();
+        // Masse
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.sqrt(arms[i].m) * 2, 0, Math.PI * 2); // Taille selon masse
+        ctx.fillStyle = arms[i].color;
+        ctx.fill();
 
-    // Masse 2
+        prevX = p.x;
+        prevY = p.y;
+    }
+    
+    // Pivot central
     ctx.beginPath();
-    ctx.fillStyle = c_m2; // Couleur dynamique masse 2
-    ctx.arc(x2, y2, m2, 0, Math.PI * 2); // Rayon basé sur la masse
-    ctx.fill();
-
-    // Point d'attache
-    ctx.beginPath();
-    ctx.fillStyle = '#fff';
     ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
     ctx.fill();
 }
 
@@ -258,4 +399,6 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
+// Start
+initArms(2); // Démarrage avec 2 bras par défaut
 loop();
