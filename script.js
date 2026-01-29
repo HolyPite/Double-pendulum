@@ -82,15 +82,59 @@ window.addEventListener('mouseup', () => {
 window.addEventListener('mousemove', (e) => {
     if (!dragging) return;
 
+    const mx = e.clientX;
+    const my = e.clientY;
+
     if (dragging === 1) {
-        const dx = e.clientX - cx;
-        const dy = e.clientY - cy;
+        const dx = mx - cx;
+        const dy = my - cy;
         a1 = Math.atan2(dx, dy);
     } else if (dragging === 2) {
-        const { x1, y1 } = getPositions();
-        const dx = e.clientX - x1;
-        const dy = e.clientY - y1;
-        a2 = Math.atan2(dx, dy);
+        // Cinématique Inverse (Inverse Kinematics)
+        // Vecteur de l'origine à la souris
+        let dx = mx - cx;
+        let dy = my - cy;
+        let d = Math.hypot(dx, dy);
+
+        // Limiter la distance à la longueur totale du bras
+        const maxLen = r1 + r2;
+        if (d > maxLen) {
+            const ratio = maxLen / d;
+            dx *= ratio;
+            dy *= ratio;
+            d = maxLen;
+        }
+
+        // Angle global vers la cible
+        const angleToTarget = Math.atan2(dx, dy);
+
+        // Loi des cosinus pour trouver l'angle interne au niveau de l'épaule
+        // d² + r1² - r2² = 2 * d * r1 * cos(alpha)
+        // Mais attention, ici on cherche l'angle entre le vecteur cible et le bras 1
+        // r2² = r1² + d² - 2 * r1 * d * cos(alpha)
+        // cos(alpha) = (r1² + d² - r2²) / (2 * r1 * d)
+        
+        // Protection contre NaN si d est trop petit ou triangles impossibles (bien que clampé)
+        let cosAlpha = (r1 * r1 + d * d - r2 * r2) / (2 * r1 * d);
+        if (cosAlpha > 1) cosAlpha = 1;
+        if (cosAlpha < -1) cosAlpha = -1;
+        
+        const alpha = Math.acos(cosAlpha);
+
+        // On définit a1. On peut choisir + alpha ou - alpha. 
+        // Pour un mouvement naturel, on pourrait comparer avec l'angle actuel, 
+        // mais ici on va simplement soustraire pour garder une configuration "coude plié".
+        a1 = angleToTarget - alpha;
+
+        // Maintenant on calcule a2. Le bras 2 va de (x1,y1) à la souris (mx,my)
+        const newX1 = cx + r1 * Math.sin(a1);
+        const newY1 = cy + r1 * Math.cos(a1);
+        
+        // Recalculer le delta depuis le nouveau coude vers la cible (souris clampée)
+        const dx2 = (cx + dx) - newX1;
+        const dy2 = (cy + dy) - newY1;
+        
+        a2 = Math.atan2(dx2, dy2);
     }
     trail = []; // Effacer la trace pendant qu'on bouge
 });
