@@ -18,7 +18,7 @@ let N = 2; // Nombre de bras
 let g = 0.8;
 let f_drag = 0.999;
 let trail = [];
-const maxTrail = 500;
+let maxTrail = 500; // Longueur de la trace (Infinity si infini)
 let isPaused = false;
 let dragging = -1; // Index du bras en cours de drag (-1 si aucun)
 let simSpeed = 5; // Nombre d'étapes de calcul par image
@@ -106,10 +106,16 @@ function generateSettingsUI() {
     physGroup.innerHTML = `<h3>Physique Globale</h3>
         <label>Vitesse Simu: <span id="val_spd">${simSpeed}</span></label>
         <input type="range" id="inp_spd" min="1" max="20" step="1" value="${simSpeed}">
+        
         <label>Gravité: <span id="val_g">${g}</span></label>
         <input type="range" id="inp_g" min="0" max="2" step="0.1" value="${g}">
+        
         <label>Résistance: <span id="val_f">${Math.round((1 - f_drag)*1000)}</span>%</label>
         <input type="range" id="inp_f" min="0" max="100" step="1" value="${(1 - f_drag)*1000}">
+        
+        <label>Longueur Trace: <span id="val_trlen">${maxTrail === Infinity ? '∞' : maxTrail}</span></label>
+        <input type="range" id="inp_trlen" min="0" max="1000" step="10" value="${maxTrail === Infinity ? 1000 : maxTrail}">
+
         <label>Couleur Trace</label>
         <input type="color" id="inp_ctr" value="${c_tr}">
     `;
@@ -122,6 +128,25 @@ function generateSettingsUI() {
         f_drag = 1 - (e.target.value / 1000); 
         physGroup.querySelector('#val_f').textContent = e.target.value; 
     });
+    
+    // Listener Longueur Trace
+    physGroup.querySelector('#inp_trlen').addEventListener('input', e => { 
+        const v = +e.target.value;
+        const display = physGroup.querySelector('#val_trlen');
+        
+        if (v >= 1000) {
+            maxTrail = Infinity;
+            display.textContent = '∞';
+        } else {
+            maxTrail = v;
+            display.textContent = v;
+            // Coupe instantanée si on réduit la taille
+            if (trail.length > maxTrail) {
+                trail.splice(0, trail.length - maxTrail);
+            }
+        }
+    });
+
     physGroup.querySelector('#inp_ctr').addEventListener('input', e => { c_tr = e.target.value; });
 
     // --- Paramètres par Bras ---
