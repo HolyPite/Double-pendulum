@@ -14,66 +14,70 @@ const valN = document.getElementById('val_n');
 let width, height, cx, cy;
 
 // --- CONFIGURATION ---
-let N = 2; // Nombre de bras
-let g = 0.8;
+// Structure globale
+const settings = {
+    nArms: 2,
+    g: 0.8,
+    resistance: 0.1, // % (0-100) -> sera converti en f_drag
+    simSpeed: 5,
+    trailLength: 500, // Infinity possible
+    trailMode: 'speed', // 'solid', 'speed', 'rainbow', 'time'
+    butterfly: false,
+    butterflyCount: 50,
+    baseColor: '#3498db'
+};
+
+// Variables dérivées / Runtime
 let f_drag = 0.999;
-let trail = [];
-let maxTrail = 500; // Longueur de la trace (Infinity si infini)
 let isPaused = false;
-let dragging = -1; // Index du bras en cours de drag (-1 si aucun)
-let simSpeed = 5; // Nombre d'étapes de calcul par image
+let dragging = -1; 
+let timeStep = 0; // Pour le mode arc-en-ciel temporel
 
-// Structure de données pour chaque bras
-// arms[i] contient : length (r), mass (m), angle (a), velocity (v), accel (acc), color (c)
-let arms = [];
-let c_tr = '#3498db'; // Couleur trace
+// STATE
+// pendulums[0] est le PRINCIPAL.
+// pendulums[1...N] sont les CLONES (Butterfly).
+// Chaque élément est un tableau d'objets "Arm" {r, m, a, v, color...}
+let pendulums = [];
 
-// --- MATHS HELPERS ---
+// Trace du pendule principal seulement (pour perf)
+// Array of {x, y, v (vitesse), t (temps)}
+let trail = [];
 
-// Résolution de système linéaire Ax = B par élimination de Gauss
-// A est une matrice NxN aplatie ou tableau 2D, B est un tableau de longueur N
+// --- PRESETS (SCÉNARIOS) ---
+const scenarios = {
+    "default": { nArms: 2, g: 0.8, resistance: 0.1, m: 15, r: 150, desc: "Défaut" },
+    "chaos": { nArms: 2, g: 1.5, resistance: 0, m: 15, r: 150, desc: "Chaos Pur (Sans friction)" },
+    "triple": { nArms: 3, g: 0.8, resistance: 0.1, m: 15, r: 120, desc: "Triple Pendule" },
+    "snake": { nArms: 5, g: 0.6, resistance: 0.5, m: 5, r: 60, desc: "Le Serpent (5 bras)" },
+    "whip": { nArms: 4, g: 0.9, resistance: 0.2, m: [40, 30, 10, 2], r: [100, 100, 100, 100], desc: "Le Fouet (Masses décroissantes)" },
+    "micro": { nArms: 2, g: 0.1, resistance: 0.0, m: 15, r: 80, desc: "Micro Gravité" }
+};
+
+// --- MATHS HELPERS (SOLVER) ---
 function solveLinearSystem(A, B) {
     const n = B.length;
-    // Copie pour ne pas modifier l'original
     const mat = A.map(row => [...row]);
     const res = [...B];
-
     for (let i = 0; i < n; i++) {
-        // Pivot
-        let maxEl = Math.abs(mat[i][i]);
-        let maxRow = i;
+        let maxEl = Math.abs(mat[i][i]), maxRow = i;
         for (let k = i + 1; k < n; k++) {
-            if (Math.abs(mat[k][i]) > maxEl) {
-                maxEl = Math.abs(mat[k][i]);
-                maxRow = k;
-            }
+            if (Math.abs(mat[k][i]) > maxEl) { maxEl = Math.abs(mat[k][i]); maxRow = k; }
         }
-
-        // Swap rows
         [mat[maxRow], mat[i]] = [mat[i], mat[maxRow]];
         [res[maxRow], res[i]] = [res[i], res[maxRow]];
-
-        // Eliminate
         for (let k = i + 1; k < n; k++) {
             const c = -mat[k][i] / mat[i][i];
             for (let j = i; j < n; j++) {
-                if (i === j) {
-                    mat[k][j] = 0;
-                } else {
-                    mat[k][j] += c * mat[i][j];
-                }
+                if (i === j) mat[k][j] = 0;
+                else mat[k][j] += c * mat[i][j];
             }
             res[k] += c * res[i];
         }
     }
-
-    // Back substitution
     const x = new Array(n).fill(0);
     for (let i = n - 1; i >= 0; i--) {
         let sum = 0;
-        for (let j = i + 1; j < n; j++) {
-            sum += mat[i][j] * x[j];
-        }
+        for (let j = i + 1; j < n; j++) sum += mat[i][j] * x[j];
         x[i] = (res[i] - sum) / mat[i][i];
     }
     return x;
@@ -81,112 +85,243 @@ function solveLinearSystem(A, B) {
 
 // --- INITIALISATION ---
 
-function initArms(num) {
-    N = num;
-    arms = [];
-    for (let i = 0; i < N; i++) {
-        arms.push({
-            r: 150 - (i * 10), // Un peu plus court à chaque fois
-            m: 10,
-            a: Math.PI / 2 + (i * 0.1), // Légère courbe
+function initSimulation(customParams = null) {
+    pendulums = [];
+    trail = [];
+    
+    // Si des params personnalisés (masses tableaux, etc.)
+    // On construit le pendule "Master"
+    let masterArms = [];
+    for (let i = 0; i < settings.nArms; i++) {
+        // Gestion des cas où m ou r sont des tableaux (scénario Whip)
+        let mVal = 15, rVal = 150;
+        if (customParams) {
+            if (Array.isArray(customParams.m)) mVal = customParams.m[i] || 10;
+            else if (customParams.m) mVal = customParams.m;
+
+            if (Array.isArray(customParams.r)) rVal = customParams.r[i] || 100;
+            else if (customParams.r) rVal = customParams.r;
+        } else {
+            // Valeurs par défaut basées sur la longueur et i
+             rVal = 150 - (i * 10);
+        }
+
+        masterArms.push({
+            r: rVal,
+            m: mVal,
+            a: Math.PI / 2 + (i * 0.1), // Angle initial
             v: 0,
-            color: i === 0 ? '#e74c3c' : (i === N - 1 ? '#f1c40f' : '#ecf0f1') 
+            color: i === 0 ? '#e74c3c' : (i === settings.nArms - 1 ? '#f1c40f' : '#ecf0f1')
         });
     }
-    trail = [];
+    pendulums.push(masterArms);
+
+    // Initialisation Butterfly (Clones)
+    if (settings.butterfly) {
+        initButterflyClones();
+    }
+
+    // Refresh UI si nécessaire (valeurs masses/longueurs peuvent avoir changé)
     generateSettingsUI();
 }
+
+function initButterflyClones() {
+    // Supprime les anciens clones, garde le maitre (index 0)
+    pendulums = [pendulums[0]];
+    
+    if (!settings.butterfly) return;
+
+    const master = pendulums[0];
+    for (let k = 0; k < settings.butterflyCount; k++) {
+        // Clone profond
+        let clone = master.map(arm => ({...arm})); // Copie propriétés
+        
+        // Perturbation infime
+        // On perturbe seulement le premier angle ou tous ? Tous c'est plus drôle.
+        clone.forEach(arm => {
+            arm.a += (Math.random() - 0.5) * 0.001; 
+        });
+
+        pendulums.push(clone);
+    }
+}
+
+// --- UI GENERATION ---
 
 function generateSettingsUI() {
     dynamicSettingsDiv.innerHTML = '';
 
-    // --- Physique Globale ---
-    const physGroup = document.createElement('div');
-    physGroup.className = 'setting-group';
-    physGroup.innerHTML = `<h3>Physique Globale</h3>
-        <label>Vitesse Simu: <span id="val_spd">${simSpeed}</span></label>
-        <input type="range" id="inp_spd" min="1" max="20" step="1" value="${simSpeed}">
-        
-        <label>Gravité: <span id="val_g">${g}</span></label>
-        <input type="range" id="inp_g" min="0" max="2" step="0.1" value="${g}">
-        
-        <label>Résistance: <span id="val_f">${Math.round((1 - f_drag)*1000)}</span>%</label>
-        <input type="range" id="inp_f" min="0" max="100" step="1" value="${(1 - f_drag)*1000}">
-        
-        <label>Longueur Trace: <span id="val_trlen">${maxTrail === Infinity ? '∞' : maxTrail}</span></label>
-        <input type="range" id="inp_trlen" min="0" max="1000" step="10" value="${maxTrail === Infinity ? 1000 : maxTrail}">
-
-        <label>Couleur Trace</label>
-        <input type="color" id="inp_ctr" value="${c_tr}">
-    `;
-    dynamicSettingsDiv.appendChild(physGroup);
-
-    // Listeners Globaux
-    physGroup.querySelector('#inp_spd').addEventListener('input', e => { simSpeed = +e.target.value; physGroup.querySelector('#val_spd').textContent = simSpeed; });
-    physGroup.querySelector('#inp_g').addEventListener('input', e => { g = +e.target.value; physGroup.querySelector('#val_g').textContent = g; });
-    physGroup.querySelector('#inp_f').addEventListener('input', e => { 
-        f_drag = 1 - (e.target.value / 1000); 
-        physGroup.querySelector('#val_f').textContent = e.target.value; 
+    // 1. SCENARIOS DROPDOWN
+    const scenDiv = document.createElement('div');
+    scenDiv.className = 'setting-group';
+    scenDiv.style.borderBottom = "1px solid #444";
+    scenDiv.innerHTML = `<h3>Scénarios</h3>`;
+    const selScen = document.createElement('select');
+    selScen.style.width = "100%";
+    selScen.style.padding = "5px";
+    selScen.style.background = "#223";
+    selScen.style.color = "white";
+    selScen.style.border = "none";
+    
+    Object.keys(scenarios).forEach(k => {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = scenarios[k].desc;
+        selScen.appendChild(opt);
     });
     
-    // Listener Longueur Trace
-    physGroup.querySelector('#inp_trlen').addEventListener('input', e => { 
-        const v = +e.target.value;
-        const display = physGroup.querySelector('#val_trlen');
+    // Bouton charger
+    const btnLoad = document.createElement('button');
+    btnLoad.textContent = "Charger Scénario";
+    btnLoad.style.marginTop = "10px";
+    btnLoad.style.width = "100%";
+    
+    btnLoad.onclick = () => {
+        const s = scenarios[selScen.value];
+        settings.nArms = s.nArms;
+        settings.g = s.g;
+        settings.resistance = s.resistance * 100; // stored as 0-1 approx
+        f_drag = 1 - (s.resistance / 1000); // Recalculer f_drag
         
-        if (v >= 1000) {
-            maxTrail = Infinity;
-            display.textContent = '∞';
-        } else {
-            maxTrail = v;
-            display.textContent = v;
-            // Coupe instantanée si on réduit la taille
-            if (trail.length > maxTrail) {
-                trail.splice(0, trail.length - maxTrail);
-            }
+        inpN.value = s.nArms; valN.textContent = s.nArms; // Update global input
+        
+        initSimulation(s); // Restart with specific params
+    };
+
+    scenDiv.appendChild(selScen);
+    scenDiv.appendChild(btnLoad);
+    dynamicSettingsDiv.appendChild(scenDiv);
+
+
+    // 2. EFFETS VISUELS (Butterfly & Rainbow)
+    const fxGroup = document.createElement('div');
+    fxGroup.className = 'setting-group';
+    fxGroup.innerHTML = `<h3>Effets Visuels</h3>`;
+    
+    // Butterfly
+    const bfDiv = document.createElement('div');
+    bfDiv.style.marginBottom = "10px";
+    bfDiv.innerHTML = `
+        <label style="display:inline-flex; align-items:center;">
+            <input type="checkbox" id="chk_bf" ${settings.butterfly ? 'checked' : ''} style="width:auto; margin-right:10px;"> 
+            Mode Effet Papillon 🦋
+        </label>
+        <div id="bf_options" style="display:${settings.butterfly ? 'block' : 'none'}; margin-left:20px; margin-top:5px;">
+             <label>Nombre de clones: <span id="val_bf_count">${settings.butterflyCount}</span></label>
+             <input type="range" id="inp_bf_count" min="10" max="200" step="10" value="${settings.butterflyCount}">
+        </div>
+    `;
+    fxGroup.appendChild(bfDiv);
+
+    // Trail Mode
+    const trDiv = document.createElement('div');
+    trDiv.innerHTML = `
+        <label>Style de Trace:</label>
+        <select id="sel_trail" style="width:100%; padding:5px; background:#223; color:white; border:none; margin-bottom:10px;">
+            <option value="solid" ${settings.trailMode === 'solid' ? 'selected' : ''}>Solide (Bleu)</option>
+            <option value="speed" ${settings.trailMode === 'speed' ? 'selected' : ''}>Vitesse (Bleu -> Rouge)</option>
+            <option value="rainbow" ${settings.trailMode === 'rainbow' ? 'selected' : ''}>Arc-en-ciel (Temps)</option>
+            <option value="rainbow-cycle" ${settings.trailMode === 'rainbow-cycle' ? 'selected' : ''}>Arc-en-ciel (Cyclique)</option>
+        </select>
+        <label>Longueur Trace: <span id="val_trlen">${settings.trailLength === Infinity ? '∞' : settings.trailLength}</span></label>
+        <input type="range" id="inp_trlen" min="0" max="1000" step="10" value="${settings.trailLength === Infinity ? 1000 : settings.trailLength}">
+    `;
+    fxGroup.appendChild(trDiv);
+    dynamicSettingsDiv.appendChild(fxGroup);
+
+    // Listeners FX
+    const chkBf = fxGroup.querySelector('#chk_bf');
+    const bfOpt = fxGroup.querySelector('#bf_options');
+    chkBf.addEventListener('change', e => {
+        settings.butterfly = e.target.checked;
+        bfOpt.style.display = settings.butterfly ? 'block' : 'none';
+        initButterflyClones();
+    });
+    fxGroup.querySelector('#inp_bf_count').addEventListener('input', e => {
+        settings.butterflyCount = +e.target.value;
+        fxGroup.querySelector('#val_bf_count').textContent = settings.butterflyCount;
+        if(settings.butterfly) initButterflyClones();
+    });
+    fxGroup.querySelector('#sel_trail').addEventListener('change', e => settings.trailMode = e.target.value);
+    fxGroup.querySelector('#inp_trlen').addEventListener('input', e => { 
+        const v = +e.target.value;
+        if (v >= 1000) { settings.trailLength = Infinity; fxGroup.querySelector('#val_trlen').textContent = '∞'; }
+        else { 
+            settings.trailLength = v; 
+            fxGroup.querySelector('#val_trlen').textContent = v; 
+            if(trail.length > v) trail.splice(0, trail.length - v);
         }
     });
 
-    physGroup.querySelector('#inp_ctr').addEventListener('input', e => { c_tr = e.target.value; });
 
-    // --- Paramètres par Bras ---
-    // Pour ne pas surcharger, on met juste Masse et Longueur par bras
+    // 3. PHYSIQUE
+    const physGroup = document.createElement('div');
+    physGroup.className = 'setting-group';
+    physGroup.innerHTML = `<h3>Physique</h3>
+        <label>Vitesse Simu: <span id="val_spd">${settings.simSpeed}</span></label>
+        <input type="range" id="inp_spd" min="1" max="20" step="1" value="${settings.simSpeed}">
+        <label>Gravité: <span id="val_g">${settings.g}</span></label>
+        <input type="range" id="inp_g" min="0" max="2" step="0.1" value="${settings.g}">
+        <label>Résistance: <span id="val_f">${settings.resistance}</span>%</label>
+        <input type="range" id="inp_f" min="0" max="100" step="1" value="${settings.resistance}">
+    `;
+    dynamicSettingsDiv.appendChild(physGroup);
+
+    // Listeners Physique
+    physGroup.querySelector('#inp_spd').addEventListener('input', e => { settings.simSpeed = +e.target.value; physGroup.querySelector('#val_spd').textContent = settings.simSpeed; });
+    physGroup.querySelector('#inp_g').addEventListener('input', e => { settings.g = +e.target.value; physGroup.querySelector('#val_g').textContent = settings.g; });
+    physGroup.querySelector('#inp_f').addEventListener('input', e => { 
+        settings.resistance = +e.target.value;
+        f_drag = 1 - (settings.resistance / 1000); 
+        physGroup.querySelector('#val_f').textContent = settings.resistance; 
+    });
+
+
+    // 4. BRAS (Masse/Longueur du Master)
     const armGroup = document.createElement('div');
     armGroup.className = 'setting-group';
-    armGroup.innerHTML = `<h3>Détails des Bras</h3>`;
+    armGroup.innerHTML = `<h3>Détails Bras (Maître)</h3>`;
     
-    arms.forEach((arm, i) => {
+    // On prend le pendule 0 comme ref
+    pendulums[0].forEach((arm, i) => {
         const div = document.createElement('div');
-        div.style.marginBottom = '15px';
+        div.style.marginBottom = '10px';
         div.style.borderBottom = '1px dashed #444';
-        div.style.paddingBottom = '10px';
         div.innerHTML = `
             <div style="font-weight:bold; color:#3498db; margin-bottom:5px;">Bras ${i + 1}</div>
-            <label>Longueur: <span id="val_r${i}">${arm.r}</span></label>
-            <input type="range" id="inp_r${i}" min="20" max="300" value="${arm.r}">
-            <label>Masse: <span id="val_m${i}">${arm.m}</span></label>
-            <input type="range" id="inp_m${i}" min="1" max="100" value="${arm.m}">
-            <label>Couleur</label>
-            <input type="color" id="inp_c${i}" value="${arm.color}">
+            <label>L: <span id="val_r${i}">${Math.round(arm.r)}</span> | M: <span id="val_m${i}">${Math.round(arm.m)}</span></label>
+            <input type="range" id="inp_r${i}" min="20" max="300" value="${arm.r}" style="width:45%; display:inline-block">
+            <input type="range" id="inp_m${i}" min="1" max="100" value="${arm.m}" style="width:45%; display:inline-block">
         `;
         armGroup.appendChild(div);
 
-        // Listeners différés (après insertion)
         setTimeout(() => {
-            document.getElementById(`inp_r${i}`).addEventListener('input', e => { arm.r = +e.target.value; document.getElementById(`val_r${i}`).textContent = arm.r; });
-            document.getElementById(`inp_m${i}`).addEventListener('input', e => { arm.m = +e.target.value; document.getElementById(`val_m${i}`).textContent = arm.m; });
-            document.getElementById(`inp_c${i}`).addEventListener('input', e => { arm.color = e.target.value; });
+            const updateLabel = () => document.getElementById(`val_r${i}`).parentNode.innerHTML = `L: <span id="val_r${i}">${Math.round(arm.r)}</span> | M: <span id="val_m${i}">${Math.round(arm.m)}</span>`;
+            
+            document.getElementById(`inp_r${i}`).addEventListener('input', e => { 
+                const val = +e.target.value; 
+                arm.r = val; 
+                // Appliquer à tous les clones pour garder la cohérence physique
+                pendulums.forEach(p => p[i].r = val);
+                updateLabel();
+            });
+            document.getElementById(`inp_m${i}`).addEventListener('input', e => { 
+                const val = +e.target.value; 
+                arm.m = val;
+                pendulums.forEach(p => p[i].m = val);
+                updateLabel(); 
+            });
         }, 0);
     });
     dynamicSettingsDiv.appendChild(armGroup);
 }
 
-// Event Listener pour changer N
 inpN.addEventListener('input', (e) => {
-    const val = +e.target.value;
-    valN.textContent = val;
-    initArms(val);
+    settings.nArms = +e.target.value;
+    valN.textContent = settings.nArms;
+    initSimulation();
 });
+
 
 // --- ENGINE ---
 
@@ -208,34 +343,34 @@ pauseBtn.addEventListener('click', () => {
     pauseBtn.classList.toggle('paused', isPaused);
 });
 
-// Modal Logic
 settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
 closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
 settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) settingsModal.classList.add('hidden'); });
 
-function getPositions() {
+
+// Calcul Positions (pour un pendule donné)
+function getPendulumPositions(armsList) {
     let x = cx;
     let y = cy;
     const positions = [];
-    for (let i = 0; i < N; i++) {
-        x += arms[i].r * Math.sin(arms[i].a);
-        y += arms[i].r * Math.cos(arms[i].a);
+    for (let i = 0; i < armsList.length; i++) {
+        x += armsList[i].r * Math.sin(armsList[i].a);
+        y += armsList[i].r * Math.cos(armsList[i].a);
         positions.push({ x, y });
     }
     return positions;
 }
 
 // --- INTERACTION ---
+// On interagit SEULEMENT avec le pendule 0
 canvas.addEventListener('mousedown', (e) => {
-    const positions = getPositions();
+    const positions = getPendulumPositions(pendulums[0]);
     const mx = e.clientX;
     const my = e.clientY;
 
-    // Check collision inverse (du bout vers la base pour prioriser le bout)
-    for (let i = N - 1; i >= 0; i--) {
+    for (let i = settings.nArms - 1; i >= 0; i--) {
         const dist = Math.hypot(mx - positions[i].x, my - positions[i].y);
-        // Rayon de clic approx
-        const radius = Math.sqrt(arms[i].m) * 3 + 10; 
+        const radius = Math.sqrt(pendulums[0][i].m) * 3 + 15; 
         if (dist < radius) {
             dragging = i;
             return;
@@ -245,196 +380,231 @@ canvas.addEventListener('mousedown', (e) => {
 
 window.addEventListener('mouseup', () => {
     if (dragging !== -1) {
-        // Reset velocities
-        for(let a of arms) a.v = 0;
+        // Reset vitesse MASTER
+        pendulums[0].forEach(a => a.v = 0);
+        
+        // Si Butterfly : Reset des clones sur le master + bruit
+        if (settings.butterfly) {
+            initButterflyClones(); 
+            // On s'assure que les clones prennent la nouvelle position
+            for(let k=1; k<pendulums.length; k++) {
+                pendulums[k].forEach((arm, idx) => {
+                    arm.a = pendulums[0][idx].a + (Math.random() - 0.5) * 0.001;
+                    arm.v = 0;
+                });
+            }
+        }
         dragging = -1;
     }
 });
 
 window.addEventListener('mousemove', (e) => {
     if (dragging === -1) return;
-
     const mx = e.clientX;
     const my = e.clientY;
-
-    // Logique simplifiée de drag: "Inverse Kinematics" simple (FABRIK light)
-    // Pour l'instant, on fait simple : on pointe le bras sélectionné vers la souris
-    // Et on résout géométriquement vers l'arrière
     
-    if (dragging === N - 1) {
-        // Drag du bout (IK) - version simplifiée géométrique ("Pulling the rope")
-        // On modifie les angles pour atteindre la cible si possible
-        // Note: Une vraie IK pour N-pendules est complexe.
-        // Hack visuel simple : On oriente le dernier bras vers la souris, 
-        // puis on remonte.
-        
-        // Approche simple : On bouge juste l'angle du bras précédent pour aligner
-        // Pour N > 2 c'est dur.
-        // Fallback: Si on drag le bout, on fait une FABRIK très basique sur 1 itération
-        
-        let targetX = mx;
-        let targetY = my;
-        
-        // On parcourt de la fin vers le début (sauf la base fixe)
-        // C'est dur de mapper ça directement aux angles sans casser la physique future.
-        // Solution robuste : "Geometric Pull"
-        // On calcule la pos du parent du noeud draggué
-        let prevX = cx, prevY = cy;
-        if (dragging > 0) {
-            const pos = getPositions();
-            prevX = pos[dragging-1].x;
-            prevY = pos[dragging-1].y;
-        }
-        
-        const dx = mx - prevX;
-        const dy = my - prevY;
-        arms[dragging].a = Math.atan2(dx, dy);
-    } else {
-        // Drag d'un noeud intermédiaire
-        // On calcule l'angle par rapport au noeud précédent
-        let prevX = cx, prevY = cy;
-        if (dragging > 0) {
-            const pos = getPositions();
-            prevX = pos[dragging-1].x;
-            prevY = pos[dragging-1].y;
-        }
-        const dx = mx - prevX;
-        const dy = my - prevY;
-        arms[dragging].a = Math.atan2(dx, dy);
+    // Drag logique simple (Geometrique) sur le Master
+    let prevX = cx, prevY = cy;
+    if (dragging > 0) {
+        const pos = getPendulumPositions(pendulums[0]);
+        prevX = pos[dragging-1].x;
+        prevY = pos[dragging-1].y;
     }
-    
-    trail = [];
+    const dx = mx - prevX;
+    const dy = my - prevY;
+    pendulums[0][dragging].a = Math.atan2(dx, dy);
+
+    // Effacer trace
+    trail = []; 
 });
 
-// --- UPDATE LOOP ---
 
-// --- INTEGRATION RK4 ---
+// --- PHYSICS CORE (RK4) ---
 
-// Calcule les dérivées (vitesses et accélérations) pour un état donné
-function computeDerivatives(currentState) {
-    // currentState est un tableau d'objets {a, v}
-    // On doit reconstruire M et F basé sur ces angles et vitesses temporaires
-    
-    const n = currentState.length;
+function computeDerivatives(armState, pendulumInstance) {
+    // armState = [{a, v}, {a, v}...]
+    const n = armState.length;
     const M = Array(n).fill(0).map(() => Array(n).fill(0));
     const F = Array(n).fill(0);
 
+    // On utilise les masses et longueurs de l'instance (constantes)
+    // Mais les angles de armState
     for (let i = 0; i < n; i++) {
         for (let j = 0; j < n; j++) {
             let massSum = 0;
-            for (let k = Math.max(i, j); k < n; k++) massSum += arms[k].m;
-            M[i][j] = massSum * arms[i].r * arms[j].r * Math.cos(currentState[i].a - currentState[j].a);
+            for (let k = Math.max(i, j); k < n; k++) massSum += pendulumInstance[k].m;
+            M[i][j] = massSum * pendulumInstance[i].r * pendulumInstance[j].r * Math.cos(armState[i].a - armState[j].a);
         }
-
-        let gravityTerm = 0;
-        let massSumG = 0;
-        for (let k = i; k < n; k++) massSumG += arms[k].m;
-        gravityTerm = -massSumG * g * arms[i].r * Math.sin(currentState[i].a);
+        let gravityTerm = 0, massSumG = 0;
+        for (let k = i; k < n; k++) massSumG += pendulumInstance[k].m;
+        gravityTerm = -massSumG * settings.g * pendulumInstance[i].r * Math.sin(armState[i].a);
 
         let coriolisTerm = 0;
         for (let j = 0; j < n; j++) {
             let massSumC = 0;
-            for (let k = Math.max(i, j); k < n; k++) massSumC += arms[k].m;
-            coriolisTerm -= massSumC * arms[i].r * arms[j].r * (currentState[j].v * currentState[j].v) * Math.sin(currentState[i].a - currentState[j].a);
+            for (let k = Math.max(i, j); k < n; k++) massSumC += pendulumInstance[k].m;
+            coriolisTerm -= massSumC * pendulumInstance[i].r * pendulumInstance[j].r * (armState[j].v * armState[j].v) * Math.sin(armState[i].a - armState[j].a);
         }
         F[i] = gravityTerm + coriolisTerm;
     }
 
     const accel = solveLinearSystem(M, F);
-    
-    // Retourne { da (vitesse), dv (accélération) }
-    return currentState.map((state, i) => ({
-        da: state.v,
-        dv: accel[i]
-    }));
+    return armState.map((_, i) => ({ da: armState[i].v, dv: accel[i] }));
 }
+
+function updatePendulumRK4(pIndex) {
+    const arms = pendulums[pIndex];
+    const n = arms.length;
+    const dt = 0.2; 
+
+    for (let step = 0; step < settings.simSpeed; step++) {
+        const state0 = arms.map(a => ({ a: a.a, v: a.v }));
+        
+        const k1 = computeDerivatives(state0, arms);
+        
+        const state1 = state0.map((s, i) => ({ a: s.a + k1[i].da * dt * 0.5, v: s.v + k1[i].dv * dt * 0.5 }));
+        const k2 = computeDerivatives(state1, arms);
+        
+        const state2 = state0.map((s, i) => ({ a: s.a + k2[i].da * dt * 0.5, v: s.v + k2[i].dv * dt * 0.5 }));
+        const k3 = computeDerivatives(state2, arms);
+        
+        const state3 = state0.map((s, i) => ({ a: s.a + k3[i].da * dt, v: s.v + k3[i].dv * dt }));
+        const k4 = computeDerivatives(state3, arms);
+
+        for (let i = 0; i < n; i++) {
+            const da = (k1[i].da + 2 * k2[i].da + 2 * k3[i].da + k4[i].da) / 6;
+            const dv = (k1[i].dv + 2 * k2[i].dv + 2 * k3[i].dv + k4[i].dv) / 6;
+            arms[i].a += da * dt;
+            arms[i].v += dv * dt;
+            arms[i].v *= f_drag;
+        }
+    }
+}
+
 
 function update() {
     if (dragging === -1 && !isPaused) {
-        // Runge-Kutta 4 avec sub-stepping pour la stabilité et la vitesse
-        // On divise le pas de temps pour avoir une simulation fluide
-        const dt = 0.2; // Petit pas de temps pour la stabilité physique
+        timeStep++;
+        
+        // Update Master
+        updatePendulumRK4(0);
 
-        for (let step = 0; step < simSpeed; step++) {
-            // État actuel
-            const state0 = arms.map(a => ({ a: a.a, v: a.v }));
-
-            // k1
-            const k1 = computeDerivatives(state0);
-
-            // k2
-            const state1 = state0.map((s, i) => ({
-                a: s.a + k1[i].da * dt * 0.5,
-                v: s.v + k1[i].dv * dt * 0.5
-            }));
-            const k2 = computeDerivatives(state1);
-
-            // k3
-            const state2 = state0.map((s, i) => ({
-                a: s.a + k2[i].da * dt * 0.5,
-                v: s.v + k2[i].dv * dt * 0.5
-            }));
-            const k3 = computeDerivatives(state2);
-
-            // k4
-            const state3 = state0.map((s, i) => ({
-                a: s.a + k3[i].da * dt,
-                v: s.v + k3[i].dv * dt
-            }));
-            const k4 = computeDerivatives(state3);
-
-            // Mise à jour finale
-            for (let i = 0; i < N; i++) {
-                const da = (k1[i].da + 2 * k2[i].da + 2 * k3[i].da + k4[i].da) / 6;
-                const dv = (k1[i].dv + 2 * k2[i].dv + 2 * k3[i].dv + k4[i].dv) / 6;
-
-                arms[i].a += da * dt;
-                arms[i].v += dv * dt;
-                
-                // Friction appliquée à chaque sous-étape
-                // Si f_drag est proche de 1 (ex: 0.999), l'appliquer N fois revient à f_drag^N
-                // C'est correct physiquement.
-                arms[i].v *= f_drag; 
+        // Update Clones (Butterfly)
+        if (settings.butterfly) {
+            // Optimization: If > 50 clones, maybe reduce simSpeed for them? 
+            // For now, full simulation.
+            for (let k = 1; k < pendulums.length; k++) {
+                updatePendulumRK4(k);
             }
         }
     }
 
+    // Gestion de la trace (Uniquement Master)
     if (!isPaused || dragging !== -1) {
-        const pos = getPositions();
-        trail.push({ x: pos[N-1].x, y: pos[N-1].y });
-        if (trail.length > maxTrail) trail.shift();
+        const pos = getPendulumPositions(pendulums[0]);
+        const tip = pos[pos.length - 1];
+        
+        // Calcul vitesse du bout (approx)
+        let speed = 0;
+        if (trail.length > 0) {
+            const last = trail[trail.length - 1];
+            speed = Math.hypot(tip.x - last.x, tip.y - last.y);
+        }
+
+        trail.push({ 
+            x: tip.x, 
+            y: tip.y, 
+            v: speed,
+            t: timeStep 
+        });
+
+        if (settings.trailLength !== Infinity && trail.length > settings.trailLength) {
+            trail.shift();
+        }
     }
 }
 
 function draw() {
+    // Effet de trainée légère sur le fond si on voulait (non fait ici)
     ctx.clearRect(0, 0, width, height);
-    const positions = getPositions();
 
-    // Trace
+    // 1. DESSINER LA TRACE (MASTER)
     if (trail.length > 1) {
-        ctx.beginPath();
-        ctx.strokeStyle = c_tr;
         ctx.lineWidth = 2;
-        // Dégradé d'opacité optionnel ? Non, simple pour l'instant
-        ctx.globalAlpha = 0.6;
-        ctx.moveTo(trail[0].x, trail[0].y);
-        for (let i = 1; i < trail.length; i++) {
-            ctx.lineTo(trail[i].x, trail[i].y);
+        
+        if (settings.trailMode === 'solid') {
+            ctx.beginPath();
+            ctx.strokeStyle = settings.baseColor;
+            ctx.moveTo(trail[0].x, trail[0].y);
+            for (let i = 1; i < trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
+            ctx.stroke();
+        } 
+        else {
+            // Modes Rainbow / Speed : On doit dessiner segment par segment ou grouper
+            // Pour perf, on dessine segment par segment (Canvas supporte bien ~1000 calls)
+            for (let i = 1; i < trail.length; i++) {
+                const p1 = trail[i-1];
+                const p2 = trail[i];
+                
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                
+                // COULEUR
+                let hue = 200; // default blue
+                let sat = '100%';
+                let light = '50%';
+
+                if (settings.trailMode === 'speed') {
+                    // Vitesse map : 0 -> 240 (Bleu), Max -> 0 (Rouge)
+                    // Vitesse typique ~0 à 20
+                    const vNorm = Math.min(p2.v * 5, 240);
+                    hue = 240 - vNorm;
+                } else if (settings.trailMode === 'rainbow') {
+                    // Basé sur le temps de création
+                    hue = (p2.t * 2) % 360;
+                } else if (settings.trailMode === 'rainbow-cycle') {
+                    // Basé sur la position dans la trace (effet serpent qui avance)
+                    hue = (i * 2 + timeStep) % 360;
+                }
+
+                ctx.strokeStyle = `hsl(${hue}, ${sat}, ${light})`;
+                ctx.stroke();
+            }
         }
-        ctx.stroke();
+    }
+
+    // 2. DESSINER LES CLONES (BUTTERFLY)
+    // Transparents et fins
+    if (settings.butterfly) {
+        ctx.globalAlpha = 0.15; // Très transparent
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#aaa';
+        
+        for (let k = 1; k < pendulums.length; k++) {
+            const pos = getPendulumPositions(pendulums[k]);
+            let px = cx, py = cy;
+            
+            ctx.beginPath();
+            for (let pt of pos) {
+                ctx.moveTo(px, py);
+                ctx.lineTo(pt.x, pt.y);
+                px = pt.x; py = pt.y;
+            }
+            ctx.stroke();
+        }
         ctx.globalAlpha = 1.0;
     }
 
-    // Pendules
-    let prevX = cx;
-    let prevY = cy;
-
-    for (let i = 0; i < N; i++) {
-        const p = positions[i];
+    // 3. DESSINER LE MASTER
+    const posMaster = getPendulumPositions(pendulums[0]);
+    let px = cx, py = cy;
+    for (let i = 0; i < posMaster.length; i++) {
+        const p = posMaster[i];
         
         // Tige
         ctx.beginPath();
-        ctx.moveTo(prevX, prevY);
+        ctx.moveTo(px, py);
         ctx.lineTo(p.x, p.y);
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 3;
@@ -442,15 +612,14 @@ function draw() {
 
         // Masse
         ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.sqrt(arms[i].m) * 2, 0, Math.PI * 2); // Taille selon masse
-        ctx.fillStyle = arms[i].color;
+        ctx.arc(p.x, p.y, Math.sqrt(pendulums[0][i].m) * 2, 0, Math.PI * 2);
+        ctx.fillStyle = pendulums[0][i].color;
         ctx.fill();
 
-        prevX = p.x;
-        prevY = p.y;
+        px = p.x; py = p.y;
     }
-    
-    // Pivot central
+
+    // Pivot
     ctx.beginPath();
     ctx.arc(cx, cy, 5, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
@@ -464,5 +633,5 @@ function loop() {
 }
 
 // Start
-initArms(2); // Démarrage avec 2 bras par défaut
+initSimulation();
 loop();
