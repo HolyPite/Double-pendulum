@@ -3,18 +3,64 @@ const ctx = canvas.getContext('2d');
 const resetBtn = document.getElementById('resetTrail');
 const pauseBtn = document.getElementById('pauseBtn');
 
+// Modal Elements
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettings = document.getElementById('closeSettings');
+
 let width, height, cx, cy;
 
-// Paramètres physiques
-let r1 = 150; // Longueur bras 1
-let r2 = 150; // Longueur bras 2
-let m1 = 15;  // Masse 1
-let m2 = 15;  // Masse 2
-let a1 = Math.PI / 2; // Angle 1
-let a2 = Math.PI / 2; // Angle 2
-let a1_v = 0; // Vitesse angulaire 1
-let a2_v = 0; // Vitesse angulaire 2
-let g = 0.8;  // Gravité
+// Paramètres physiques initiaux
+let r1 = 150; 
+let r2 = 150; 
+let m1 = 15;  
+let m2 = 15;  
+let a1 = Math.PI / 2; 
+let a2 = Math.PI / 2; 
+let a1_v = 0; 
+let a2_v = 0; 
+let g = 0.8;  
+let f_drag = 0.999; // Facteur de friction (1 = aucune friction)
+
+// Couleurs
+let c_m1 = '#e74c3c';
+let c_m2 = '#f1c40f';
+let c_tr = '#3498db';
+
+// Inputs Management
+const inputs = {
+    r1: { el: document.getElementById('inp_r1'), val: document.getElementById('val_r1'), set: v => r1 = +v },
+    r2: { el: document.getElementById('inp_r2'), val: document.getElementById('val_r2'), set: v => r2 = +v },
+    m1: { el: document.getElementById('inp_m1'), val: document.getElementById('val_m1'), set: v => m1 = +v },
+    m2: { el: document.getElementById('inp_m2'), val: document.getElementById('val_m2'), set: v => m2 = +v },
+    g:  { el: document.getElementById('inp_g'),  val: document.getElementById('val_g'),  set: v => g  = +v },
+    f:  { el: document.getElementById('inp_f'),  val: document.getElementById('val_f'),  set: v => {
+            // Conversion 0-100% resistance -> multiplicateur (ex: 10% res -> 0.999)
+            // Plus simple: mapped to 0.9 (res max) -> 1.0 (res min)
+            // Slider value 0 (no res) -> 1.0 multiplier
+            // Slider value 100 (high res) -> 0.9 multiplier
+            f_drag = 1 - (v / 1000); 
+        }},
+    c1: { el: document.getElementById('col_m1'), set: v => c_m1 = v },
+    c2: { el: document.getElementById('col_m2'), set: v => c_m2 = v },
+    ct: { el: document.getElementById('col_tr'), set: v => c_tr = v }
+};
+
+// Initialisation des listeners pour les inputs
+Object.keys(inputs).forEach(k => {
+    const item = inputs[k];
+    item.el.addEventListener('input', (e) => {
+        item.set(e.target.value);
+        if(item.val) item.val.textContent = e.target.value;
+    });
+});
+
+// Modal Logic
+settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
+closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
+settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) settingsModal.classList.add('hidden');
+});
 
 // État de l'interaction
 let dragging = null; // null, 1 ou 2
@@ -42,11 +88,6 @@ pauseBtn.addEventListener('click', () => {
     isPaused = !isPaused;
     pauseBtn.textContent = isPaused ? 'Reprendre' : 'Pause';
     pauseBtn.classList.toggle('paused', isPaused);
-    if (isPaused) {
-        // Optionnel : on peut mettre les vitesses à zéro 
-        // ou les garder pour quand on reprend.
-        // Ici on les garde pour un effet plus naturel.
-    }
 });
 
 // Calcul des positions
@@ -64,15 +105,17 @@ canvas.addEventListener('mousedown', (e) => {
     const dist1 = Math.hypot(e.clientX - x1, e.clientY - y1);
     const dist2 = Math.hypot(e.clientX - x2, e.clientY - y2);
 
-    if (dist2 < 25) {
+    // Ajuster la zone de clic en fonction de la masse (visuel)
+    if (dist2 < m2 + 20) {
         dragging = 2;
-    } else if (dist1 < 25) {
+    } else if (dist1 < m1 + 20) {
         dragging = 1;
     }
 });
 
 window.addEventListener('mouseup', () => {
     if (dragging) {
+        // Reset vitesse si on vient de lâcher, ou on peut lancer...
         a1_v = 0;
         a2_v = 0;
         dragging = null;
@@ -91,12 +134,10 @@ window.addEventListener('mousemove', (e) => {
         a1 = Math.atan2(dx, dy);
     } else if (dragging === 2) {
         // Cinématique Inverse (Inverse Kinematics)
-        // Vecteur de l'origine à la souris
         let dx = mx - cx;
         let dy = my - cy;
         let d = Math.hypot(dx, dy);
 
-        // Limiter la distance à la longueur totale du bras
         const maxLen = r1 + r2;
         if (d > maxLen) {
             const ratio = maxLen / d;
@@ -105,38 +146,25 @@ window.addEventListener('mousemove', (e) => {
             d = maxLen;
         }
 
-        // Angle global vers la cible
         const angleToTarget = Math.atan2(dx, dy);
-
-        // Loi des cosinus pour trouver l'angle interne au niveau de l'épaule
-        // d² + r1² - r2² = 2 * d * r1 * cos(alpha)
-        // Mais attention, ici on cherche l'angle entre le vecteur cible et le bras 1
-        // r2² = r1² + d² - 2 * r1 * d * cos(alpha)
-        // cos(alpha) = (r1² + d² - r2²) / (2 * r1 * d)
         
-        // Protection contre NaN si d est trop petit ou triangles impossibles (bien que clampé)
         let cosAlpha = (r1 * r1 + d * d - r2 * r2) / (2 * r1 * d);
         if (cosAlpha > 1) cosAlpha = 1;
         if (cosAlpha < -1) cosAlpha = -1;
         
         const alpha = Math.acos(cosAlpha);
 
-        // On définit a1. On peut choisir + alpha ou - alpha. 
-        // Pour un mouvement naturel, on pourrait comparer avec l'angle actuel, 
-        // mais ici on va simplement soustraire pour garder une configuration "coude plié".
         a1 = angleToTarget - alpha;
 
-        // Maintenant on calcule a2. Le bras 2 va de (x1,y1) à la souris (mx,my)
         const newX1 = cx + r1 * Math.sin(a1);
         const newY1 = cy + r1 * Math.cos(a1);
         
-        // Recalculer le delta depuis le nouveau coude vers la cible (souris clampée)
         const dx2 = (cx + dx) - newX1;
         const dy2 = (cy + dy) - newY1;
         
         a2 = Math.atan2(dx2, dy2);
     }
-    trail = []; // Effacer la trace pendant qu'on bouge
+    trail = []; 
 });
 
 function update() {
@@ -161,9 +189,9 @@ function update() {
         a1 += a1_v;
         a2 += a2_v;
 
-        // Friction légère
-        a1_v *= 0.999;
-        a2_v *= 0.999;
+        // Friction dynamique
+        a1_v *= f_drag;
+        a2_v *= f_drag;
     }
 
     if (!isPaused || dragging) {
@@ -180,7 +208,8 @@ function draw() {
 
     // Dessin de la trace
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(52, 152, 219, 0.5)';
+    ctx.strokeStyle = c_tr; // Couleur dynamique trace
+    ctx.globalAlpha = 0.5;
     ctx.lineWidth = 2;
     for (let i = 0; i < trail.length; i++) {
         const p = trail[i];
@@ -188,6 +217,7 @@ function draw() {
         else ctx.lineTo(p.x, p.y);
     }
     ctx.stroke();
+    ctx.globalAlpha = 1.0;
 
     // Bras 1
     ctx.beginPath();
@@ -205,14 +235,14 @@ function draw() {
 
     // Masse 1
     ctx.beginPath();
-    ctx.fillStyle = '#e74c3c';
-    ctx.arc(x1, y1, m1, 0, Math.PI * 2);
+    ctx.fillStyle = c_m1; // Couleur dynamique masse 1
+    ctx.arc(x1, y1, m1, 0, Math.PI * 2); // Rayon basé sur la masse
     ctx.fill();
 
     // Masse 2
     ctx.beginPath();
-    ctx.fillStyle = '#f1c40f';
-    ctx.arc(x2, y2, m2, 0, Math.PI * 2);
+    ctx.fillStyle = c_m2; // Couleur dynamique masse 2
+    ctx.arc(x2, y2, m2, 0, Math.PI * 2); // Rayon basé sur la masse
     ctx.fill();
 
     // Point d'attache
