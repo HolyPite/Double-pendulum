@@ -21,6 +21,7 @@ let trail = [];
 const maxTrail = 500;
 let isPaused = false;
 let dragging = -1; // Index du bras en cours de drag (-1 si aucun)
+let simSpeed = 5; // Nombre d'étapes de calcul par image
 
 // Structure de données pour chaque bras
 // arms[i] contient : length (r), mass (m), angle (a), velocity (v), accel (acc), color (c)
@@ -103,6 +104,8 @@ function generateSettingsUI() {
     const physGroup = document.createElement('div');
     physGroup.className = 'setting-group';
     physGroup.innerHTML = `<h3>Physique Globale</h3>
+        <label>Vitesse Simu: <span id="val_spd">${simSpeed}</span></label>
+        <input type="range" id="inp_spd" min="1" max="20" step="1" value="${simSpeed}">
         <label>Gravité: <span id="val_g">${g}</span></label>
         <input type="range" id="inp_g" min="0" max="2" step="0.1" value="${g}">
         <label>Résistance: <span id="val_f">${Math.round((1 - f_drag)*1000)}</span>%</label>
@@ -113,6 +116,7 @@ function generateSettingsUI() {
     dynamicSettingsDiv.appendChild(physGroup);
 
     // Listeners Globaux
+    physGroup.querySelector('#inp_spd').addEventListener('input', e => { simSpeed = +e.target.value; physGroup.querySelector('#val_spd').textContent = simSpeed; });
     physGroup.querySelector('#inp_g').addEventListener('input', e => { g = +e.target.value; physGroup.querySelector('#val_g').textContent = g; });
     physGroup.querySelector('#inp_f').addEventListener('input', e => { 
         f_drag = 1 - (e.target.value / 1000); 
@@ -279,64 +283,99 @@ window.addEventListener('mousemove', (e) => {
 
 // --- UPDATE LOOP ---
 
-function update() {
-    if (dragging === -1 && !isPaused) {
-        // Formulation Matricielle M * alpha = F
-        // M est symétrique
-        const M = Array(N).fill(0).map(() => Array(N).fill(0));
-        const F = Array(N).fill(0);
+// --- INTEGRATION RK4 ---
 
-        for (let i = 0; i < N; i++) {
-            for (let j = 0; j < N; j++) {
-                // Terme de Masse M_ij
-                // M_ij = cos(th_i - th_j) * L_i * L_j * Sum(m_k) pour k = max(i,j) à N-1
-                
-                let massSum = 0;
-                for (let k = Math.max(i, j); k < N; k++) {
-                    massSum += arms[k].m;
-                }
-                
-                M[i][j] = massSum * arms[i].r * arms[j].r * Math.cos(arms[i].a - arms[j].a);
-            }
+// Calcule les dérivées (vitesses et accélérations) pour un état donné
+function computeDerivatives(currentState) {
+    // currentState est un tableau d'objets {a, v}
+    // On doit reconstruire M et F basé sur ces angles et vitesses temporaires
+    
+    const n = currentState.length;
+    const M = Array(n).fill(0).map(() => Array(n).fill(0));
+    const F = Array(n).fill(0);
 
-            // Vecteur Force F_i
-            // Gravité + Coriolis/Centripète
-            let gravityTerm = 0;
-            let coriolisTerm = 0;
-
-            // Gravité: - Sum(m_k) * g * L_i * sin(th_i)
-            let massSumG = 0;
-            for (let k = i; k < N; k++) {
-                massSumG += arms[k].m;
-            }
-            gravityTerm = -massSumG * g * arms[i].r * Math.sin(arms[i].a);
-
-            // Coriolis: - Sum(m_k * L_i * L_j * v_j^2 * sin(th_i - th_j))
-            for (let j = 0; j < N; j++) {
-                let massSumC = 0;
-                for (let k = Math.max(i, j); k < N; k++) {
-                    massSumC += arms[k].m;
-                }
-                coriolisTerm -= massSumC * arms[i].r * arms[j].r * (arms[j].v * arms[j].v) * Math.sin(arms[i].a - arms[j].a);
-            }
-
-            F[i] = gravityTerm + coriolisTerm;
+    for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+            let massSum = 0;
+            for (let k = Math.max(i, j); k < n; k++) massSum += arms[k].m;
+            M[i][j] = massSum * arms[i].r * arms[j].r * Math.cos(currentState[i].a - currentState[j].a);
         }
 
-        // Résoudre pour les accélérations
-        const accel = solveLinearSystem(M, F);
+        let gravityTerm = 0;
+        let massSumG = 0;
+        for (let k = i; k < n; k++) massSumG += arms[k].m;
+        gravityTerm = -massSumG * g * arms[i].r * Math.sin(currentState[i].a);
 
-        // Intégration Euler Semi-Implicite
-        for (let i = 0; i < N; i++) {
-            arms[i].v += accel[i];
-            arms[i].v *= f_drag; // Friction
-            arms[i].a += arms[i].v;
+        let coriolisTerm = 0;
+        for (let j = 0; j < n; j++) {
+            let massSumC = 0;
+            for (let k = Math.max(i, j); k < n; k++) massSumC += arms[k].m;
+            coriolisTerm -= massSumC * arms[i].r * arms[j].r * (currentState[j].v * currentState[j].v) * Math.sin(currentState[i].a - currentState[j].a);
+        }
+        F[i] = gravityTerm + coriolisTerm;
+    }
+
+    const accel = solveLinearSystem(M, F);
+    
+    // Retourne { da (vitesse), dv (accélération) }
+    return currentState.map((state, i) => ({
+        da: state.v,
+        dv: accel[i]
+    }));
+}
+
+function update() {
+    if (dragging === -1 && !isPaused) {
+        // Runge-Kutta 4 avec sub-stepping pour la stabilité et la vitesse
+        // On divise le pas de temps pour avoir une simulation fluide
+        const dt = 0.2; // Petit pas de temps pour la stabilité physique
+
+        for (let step = 0; step < simSpeed; step++) {
+            // État actuel
+            const state0 = arms.map(a => ({ a: a.a, v: a.v }));
+
+            // k1
+            const k1 = computeDerivatives(state0);
+
+            // k2
+            const state1 = state0.map((s, i) => ({
+                a: s.a + k1[i].da * dt * 0.5,
+                v: s.v + k1[i].dv * dt * 0.5
+            }));
+            const k2 = computeDerivatives(state1);
+
+            // k3
+            const state2 = state0.map((s, i) => ({
+                a: s.a + k2[i].da * dt * 0.5,
+                v: s.v + k2[i].dv * dt * 0.5
+            }));
+            const k3 = computeDerivatives(state2);
+
+            // k4
+            const state3 = state0.map((s, i) => ({
+                a: s.a + k3[i].da * dt,
+                v: s.v + k3[i].dv * dt
+            }));
+            const k4 = computeDerivatives(state3);
+
+            // Mise à jour finale
+            for (let i = 0; i < N; i++) {
+                const da = (k1[i].da + 2 * k2[i].da + 2 * k3[i].da + k4[i].da) / 6;
+                const dv = (k1[i].dv + 2 * k2[i].dv + 2 * k3[i].dv + k4[i].dv) / 6;
+
+                arms[i].a += da * dt;
+                arms[i].v += dv * dt;
+                
+                // Friction appliquée à chaque sous-étape
+                // Si f_drag est proche de 1 (ex: 0.999), l'appliquer N fois revient à f_drag^N
+                // C'est correct physiquement.
+                arms[i].v *= f_drag; 
+            }
         }
     }
 
     if (!isPaused || dragging !== -1) {
         const pos = getPositions();
-        // Trace sur le dernier élément
         trail.push({ x: pos[N-1].x, y: pos[N-1].y });
         if (trail.length > maxTrail) trail.shift();
     }
