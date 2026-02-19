@@ -18,7 +18,7 @@ let width, height, cx, cy;
 const themes = {
     "default": { bg: '#1a1a1a', trail: 'speed', glow: 0, composite: 'source-over', desc: "Défaut" },
     "neon": { bg: '#000000', trail: 'speed', glow: 20, composite: 'lighter', desc: "Néon Cyberpunk" },
-    "retro": { bg: '#0f380f', trail: 'solid', glow: 5, composite: 'source-over', desc: "Rétro Phosphore" }
+    "retro": { bg: '#001a1a', trail: 'solid', glow: 0, composite: 'source-over', desc: "Blueprint (Retro)" }
 };
 
 // --- CONFIGURATION ---
@@ -39,7 +39,7 @@ const settings = {
 // Variables dérivées / Runtime
 let f_drag = 0.999;
 let isPaused = false;
-let dragging = -1; 
+let dragging = -1;
 let timeStep = 0; // Pour le mode arc-en-ciel temporel
 
 // STATE
@@ -97,7 +97,7 @@ function solveLinearSystem(A, B) {
 function initSimulation(customParams = null) {
     pendulums = [];
     trail = [];
-    
+
     // Si des params personnalisés (masses tableaux, etc.)
     // On construit le pendule "Master"
     let masterArms = [];
@@ -112,7 +112,7 @@ function initSimulation(customParams = null) {
             else if (customParams.r) rVal = customParams.r;
         } else {
             // Valeurs par défaut basées sur la longueur et i
-             rVal = 150 - (i * 10);
+            rVal = 150 - (i * 10);
         }
 
         masterArms.push({
@@ -137,18 +137,18 @@ function initSimulation(customParams = null) {
 function initButterflyClones() {
     // Supprime les anciens clones, garde le maitre (index 0)
     pendulums = [pendulums[0]];
-    
+
     if (!settings.butterfly) return;
 
     const master = pendulums[0];
     for (let k = 0; k < settings.butterflyCount; k++) {
         // Clone profond
-        let clone = master.map(arm => ({...arm})); // Copie propriétés
-        
+        let clone = master.map(arm => ({ ...arm })); // Copie propriétés
+
         // Perturbation infime
         // On perturbe seulement le premier angle ou tous ? Tous c'est plus drôle.
         clone.forEach(arm => {
-            arm.a += (Math.random() - 0.5) * 0.001; 
+            arm.a += (Math.random() - 0.5) * 0.001;
         });
 
         pendulums.push(clone);
@@ -171,29 +171,29 @@ function generateSettingsUI() {
     selScen.style.background = "#223";
     selScen.style.color = "white";
     selScen.style.border = "none";
-    
+
     Object.keys(scenarios).forEach(k => {
         const opt = document.createElement('option');
         opt.value = k;
         opt.textContent = scenarios[k].desc;
         selScen.appendChild(opt);
     });
-    
+
     // Bouton charger
     const btnLoad = document.createElement('button');
     btnLoad.textContent = "Charger Scénario";
     btnLoad.style.marginTop = "10px";
     btnLoad.style.width = "100%";
-    
+
     btnLoad.onclick = () => {
         const s = scenarios[selScen.value];
         settings.nArms = s.nArms;
         settings.g = s.g;
         settings.resistance = s.resistance * 100; // stored as 0-1 approx
         f_drag = 1 - (s.resistance / 1000); // Recalculer f_drag
-        
+
         inpN.value = s.nArms; valN.textContent = s.nArms; // Update global input
-        
+
         initSimulation(s); // Restart with specific params
     };
 
@@ -206,7 +206,7 @@ function generateSettingsUI() {
     const fxGroup = document.createElement('div');
     fxGroup.className = 'setting-group';
     fxGroup.innerHTML = `<h3>Effets Visuels</h3>`;
-    
+
     // Butterfly
     const bfDiv = document.createElement('div');
     bfDiv.style.marginBottom = "10px";
@@ -247,15 +247,15 @@ function generateSettingsUI() {
     selTheme.style.background = "#223";
     selTheme.style.color = "white";
     selTheme.style.border = "none";
-    
+
     Object.keys(themes).forEach(k => {
         const opt = document.createElement('option');
         opt.value = k;
         opt.textContent = themes[k].desc;
-        if(settings.theme === k) opt.selected = true;
+        if (settings.theme === k) opt.selected = true;
         selTheme.appendChild(opt);
     });
-    
+
     selTheme.addEventListener('change', e => {
         settings.theme = e.target.value;
         const t = themes[settings.theme];
@@ -279,16 +279,16 @@ function generateSettingsUI() {
     fxGroup.querySelector('#inp_bf_count').addEventListener('input', e => {
         settings.butterflyCount = +e.target.value;
         fxGroup.querySelector('#val_bf_count').textContent = settings.butterflyCount;
-        if(settings.butterfly) initButterflyClones();
+        if (settings.butterfly) initButterflyClones();
     });
     fxGroup.querySelector('#sel_trail').addEventListener('change', e => settings.trailMode = e.target.value);
-    fxGroup.querySelector('#inp_trlen').addEventListener('input', e => { 
+    fxGroup.querySelector('#inp_trlen').addEventListener('input', e => {
         const v = +e.target.value;
         if (v >= 1000) { settings.trailLength = Infinity; fxGroup.querySelector('#val_trlen').textContent = '∞'; }
-        else { 
-            settings.trailLength = v; 
-            fxGroup.querySelector('#val_trlen').textContent = v; 
-            if(trail.length > v) trail.splice(0, trail.length - v);
+        else {
+            settings.trailLength = v;
+            fxGroup.querySelector('#val_trlen').textContent = v;
+            if (trail.length > v) trail.splice(0, trail.length - v);
         }
     });
 
@@ -309,10 +309,10 @@ function generateSettingsUI() {
     // Listeners Physique
     physGroup.querySelector('#inp_spd').addEventListener('input', e => { settings.simSpeed = +e.target.value; physGroup.querySelector('#val_spd').textContent = settings.simSpeed; });
     physGroup.querySelector('#inp_g').addEventListener('input', e => { settings.g = +e.target.value; physGroup.querySelector('#val_g').textContent = settings.g; });
-    physGroup.querySelector('#inp_f').addEventListener('input', e => { 
+    physGroup.querySelector('#inp_f').addEventListener('input', e => {
         settings.resistance = +e.target.value;
-        f_drag = 1 - (settings.resistance / 1000); 
-        physGroup.querySelector('#val_f').textContent = settings.resistance; 
+        f_drag = 1 - (settings.resistance / 1000);
+        physGroup.querySelector('#val_f').textContent = settings.resistance;
     });
 
 
@@ -320,7 +320,7 @@ function generateSettingsUI() {
     const armGroup = document.createElement('div');
     armGroup.className = 'setting-group';
     armGroup.innerHTML = `<h3>Détails Bras (Maître)</h3>`;
-    
+
     // On prend le pendule 0 comme ref
     pendulums[0].forEach((arm, i) => {
         const div = document.createElement('div');
@@ -336,19 +336,19 @@ function generateSettingsUI() {
 
         setTimeout(() => {
             const updateLabel = () => document.getElementById(`val_r${i}`).parentNode.innerHTML = `L: <span id="val_r${i}">${Math.round(arm.r)}</span> | M: <span id="val_m${i}">${Math.round(arm.m)}</span>`;
-            
-            document.getElementById(`inp_r${i}`).addEventListener('input', e => { 
-                const val = +e.target.value; 
-                arm.r = val; 
+
+            document.getElementById(`inp_r${i}`).addEventListener('input', e => {
+                const val = +e.target.value;
+                arm.r = val;
                 // Appliquer à tous les clones pour garder la cohérence physique
                 pendulums.forEach(p => p[i].r = val);
                 updateLabel();
             });
-            document.getElementById(`inp_m${i}`).addEventListener('input', e => { 
-                const val = +e.target.value; 
+            document.getElementById(`inp_m${i}`).addEventListener('input', e => {
+                const val = +e.target.value;
                 arm.m = val;
                 pendulums.forEach(p => p[i].m = val);
-                updateLabel(); 
+                updateLabel();
             });
         }, 0);
     });
@@ -409,7 +409,7 @@ canvas.addEventListener('mousedown', (e) => {
 
     for (let i = settings.nArms - 1; i >= 0; i--) {
         const dist = Math.hypot(mx - positions[i].x, my - positions[i].y);
-        const radius = Math.sqrt(pendulums[0][i].m) * 3 + 15; 
+        const radius = Math.sqrt(pendulums[0][i].m) * 3 + 15;
         if (dist < radius) {
             dragging = i;
             return;
@@ -421,12 +421,12 @@ window.addEventListener('mouseup', () => {
     if (dragging !== -1) {
         // Reset vitesse MASTER
         pendulums[0].forEach(a => a.v = 0);
-        
+
         // Si Butterfly : Reset des clones sur le master + bruit
         if (settings.butterfly) {
-            initButterflyClones(); 
+            initButterflyClones();
             // On s'assure que les clones prennent la nouvelle position
-            for(let k=1; k<pendulums.length; k++) {
+            for (let k = 1; k < pendulums.length; k++) {
                 pendulums[k].forEach((arm, idx) => {
                     arm.a = pendulums[0][idx].a + (Math.random() - 0.5) * 0.001;
                     arm.v = 0;
@@ -441,20 +441,20 @@ window.addEventListener('mousemove', (e) => {
     if (dragging === -1) return;
     const mx = e.clientX;
     const my = e.clientY;
-    
+
     // Drag logique simple (Geometrique) sur le Master
     let prevX = cx, prevY = cy;
     if (dragging > 0) {
         const pos = getPendulumPositions(pendulums[0]);
-        prevX = pos[dragging-1].x;
-        prevY = pos[dragging-1].y;
+        prevX = pos[dragging - 1].x;
+        prevY = pos[dragging - 1].y;
     }
     const dx = mx - prevX;
     const dy = my - prevY;
     pendulums[0][dragging].a = Math.atan2(dx, dy);
 
     // Effacer trace
-    trail = []; 
+    trail = [];
 });
 
 
@@ -494,19 +494,19 @@ function computeDerivatives(armState, pendulumInstance) {
 function updatePendulumRK4(pIndex) {
     const arms = pendulums[pIndex];
     const n = arms.length;
-    const dt = 0.2; 
+    const dt = 0.2;
 
     for (let step = 0; step < settings.simSpeed; step++) {
         const state0 = arms.map(a => ({ a: a.a, v: a.v }));
-        
+
         const k1 = computeDerivatives(state0, arms);
-        
+
         const state1 = state0.map((s, i) => ({ a: s.a + k1[i].da * dt * 0.5, v: s.v + k1[i].dv * dt * 0.5 }));
         const k2 = computeDerivatives(state1, arms);
-        
+
         const state2 = state0.map((s, i) => ({ a: s.a + k2[i].da * dt * 0.5, v: s.v + k2[i].dv * dt * 0.5 }));
         const k3 = computeDerivatives(state2, arms);
-        
+
         const state3 = state0.map((s, i) => ({ a: s.a + k3[i].da * dt, v: s.v + k3[i].dv * dt }));
         const k4 = computeDerivatives(state3, arms);
 
@@ -524,7 +524,7 @@ function updatePendulumRK4(pIndex) {
 function update() {
     if (dragging === -1 && !isPaused) {
         timeStep++;
-        
+
         // Update Master
         updatePendulumRK4(0);
 
@@ -542,7 +542,7 @@ function update() {
     if (!isPaused || dragging !== -1) {
         const pos = getPendulumPositions(pendulums[0]);
         const tip = pos[pos.length - 1];
-        
+
         // Calcul vitesse du bout (approx)
         let speed = 0;
         if (trail.length > 0) {
@@ -550,11 +550,11 @@ function update() {
             speed = Math.hypot(tip.x - last.x, tip.y - last.y);
         }
 
-        trail.push({ 
-            x: tip.x, 
-            y: tip.y, 
+        trail.push({
+            x: tip.x,
+            y: tip.y,
             v: speed,
-            t: timeStep 
+            t: timeStep
         });
 
         if (settings.trailLength !== Infinity && trail.length > settings.trailLength) {
@@ -565,41 +565,47 @@ function update() {
 
 function draw() {
     const currentTheme = themes[settings.theme];
-    
+
     // Clear avec couleur du thème
     ctx.fillStyle = currentTheme.bg;
     ctx.fillRect(0, 0, width, height);
-    
+
+    // Grille pour le mode Retro
+    if (settings.theme === 'retro') {
+        drawGrid();
+    }
+
     // Setup Glow & Composite
-    ctx.shadowBlur = currentTheme.glow;
-    ctx.shadowColor = settings.theme === 'neon' ? settings.baseColor : 'transparent';
+    // Optimisation: NEON ne met pas de glow sur la trace (trop coûteux)
+    // On met le glow uniquement sur les masses plus bas
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
     ctx.globalCompositeOperation = currentTheme.composite;
 
     // 1. DESSINER LA TRACE (MASTER)
     if (trail.length > 1) {
-        
+
         if (settings.trailMode === 'solid') {
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.strokeStyle = settings.theme === 'retro' ? '#00ff00' : settings.baseColor;
-            if (settings.theme === 'neon') ctx.shadowColor = settings.baseColor;
-            
+            ctx.strokeStyle = settings.theme === 'retro' ? '#00ffff' : settings.baseColor; // Cyan pour Retro
+
             ctx.moveTo(trail[0].x, trail[0].y);
             for (let i = 1; i < trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
             ctx.stroke();
-        } 
+        }
         else {
             // Modes Rainbow / Speed / Neon Advanced
             for (let i = 1; i < trail.length; i++) {
-                const p1 = trail[i-1];
+                const p1 = trail[i - 1];
                 const p2 = trail[i];
-                
+
                 ctx.beginPath();
                 ctx.moveTo(p1.x, p1.y);
                 ctx.lineTo(p2.x, p2.y);
-                
+
                 // COULEUR & STYLE
-                let hue = 200; 
+                let hue = 200;
                 let sat = '100%';
                 let light = '50%';
                 let alpha = 1.0;
@@ -608,14 +614,16 @@ function draw() {
                 // Fading : les vieux points sont transparents
                 // Index 0 = le plus vieux
                 const ageRatio = i / trail.length; // 0..1
-                alpha = ageRatio; 
+                alpha = ageRatio;
 
                 if (settings.trailMode === 'speed') {
                     const vNorm = Math.min(p2.v * 5, 240);
                     hue = 240 - vNorm;
-                    if(settings.theme === 'neon') {
-                         light = '60%';
-                         lw = 1 + (p2.v * 0.5); // Epaisseur dynamique
+                    if (settings.theme === 'neon') {
+                        // Compensation visuelle: plus clair et plus épais
+                        light = '70%';
+                        sat = '100%';
+                        lw = 2 + (p2.v * 0.8);
                     }
                 } else if (settings.trailMode === 'rainbow') {
                     hue = (p2.t * 2) % 360;
@@ -625,8 +633,6 @@ function draw() {
 
                 ctx.lineWidth = lw;
                 ctx.strokeStyle = `hsla(${hue}, ${sat}, ${light}, ${alpha})`;
-                if(settings.theme === 'neon') ctx.shadowColor = ctx.strokeStyle;
-                
                 ctx.stroke();
             }
         }
@@ -636,13 +642,13 @@ function draw() {
     if (settings.butterfly) {
         ctx.globalAlpha = 0.15;
         ctx.lineWidth = 1;
-        ctx.strokeStyle = settings.theme === 'retro' ? '#004400' : '#aaa';
-        ctx.shadowBlur = 0; // Pas de glow sur les clones pour perf
-        
+        ctx.strokeStyle = settings.theme === 'retro' ? '#004444' : '#aaa'; // Sombre cyan pour retro
+        ctx.shadowBlur = 0;
+
         for (let k = 1; k < pendulums.length; k++) {
             const pos = getPendulumPositions(pendulums[k]);
             let px = cx, py = cy;
-            
+
             ctx.beginPath();
             for (let pt of pos) {
                 ctx.moveTo(px, py);
@@ -652,8 +658,12 @@ function draw() {
             ctx.stroke();
         }
         ctx.globalAlpha = 1.0;
-        // Retablir glow
+    }
+
+    // ACTIVER GLOW UNIQUEMENT POUR LES PENDULES (Masses + Tiges)
+    if (settings.theme === 'neon') {
         ctx.shadowBlur = currentTheme.glow;
+        ctx.shadowColor = settings.baseColor; // Ou couleur dynamique
     }
 
     // 3. DESSINER LE MASTER
@@ -661,27 +671,35 @@ function draw() {
     let px = cx, py = cy;
     for (let i = 0; i < posMaster.length; i++) {
         const p = posMaster[i];
-        
+
         // Tige
         ctx.beginPath();
         ctx.moveTo(px, py);
         ctx.lineTo(p.x, p.y);
-        ctx.strokeStyle = settings.theme === 'retro' ? '#00ff00' : '#fff';
+        ctx.strokeStyle = settings.theme === 'retro' ? '#00ffff' : '#fff';
         ctx.lineWidth = 3;
         ctx.stroke();
 
         // Masse
         ctx.beginPath();
         ctx.arc(p.x, p.y, Math.sqrt(pendulums[0][i].m) * 2, 0, Math.PI * 2);
-        ctx.fillStyle = pendulums[0][i].color;
-        
-        if (settings.theme === 'neon') {
-            ctx.fillStyle = '#fff';
-            ctx.shadowColor = pendulums[0][i].color;
-            ctx.shadowBlur = 30;
+
+        if (settings.theme === 'retro') {
+            // Wireframe style
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 2;
+            ctx.fill();
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = pendulums[0][i].color;
+            if (settings.theme === 'neon') {
+                ctx.fillStyle = '#fff';
+                ctx.shadowColor = pendulums[0][i].color;
+                ctx.shadowBlur = 30;
+            }
+            ctx.fill();
         }
-        
-        ctx.fill();
 
         px = p.x; py = p.y;
     }
@@ -689,12 +707,35 @@ function draw() {
     // Pivot
     ctx.beginPath();
     ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = settings.theme === 'retro' ? '#00ffff' : '#fff';
     ctx.fill();
-    
+
     // Reset context
     ctx.shadowBlur = 0;
     ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawGrid() {
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.05)';
+    const step = 50;
+
+    ctx.beginPath();
+    for (let x = 0; x < width; x += step) {
+        ctx.moveTo(x, 0); ctx.lineTo(x, height);
+    }
+    for (let y = 0; y < height; y += step) {
+        ctx.moveTo(0, y); ctx.lineTo(width, y);
+    }
+    ctx.stroke();
+
+    // Axes centraux
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
+    ctx.beginPath();
+    ctx.moveTo(cx, 0); ctx.lineTo(cx, height);
+    ctx.moveTo(0, cy); ctx.lineTo(width, cy);
+    ctx.stroke();
 }
 
 function loop() {
