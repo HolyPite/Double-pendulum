@@ -13,6 +13,14 @@ const valN = document.getElementById('val_n');
 
 let width, height, cx, cy;
 
+
+// --- THEMES ---
+const themes = {
+    "default": { bg: '#1a1a1a', trail: 'speed', glow: 0, composite: 'source-over', desc: "Défaut" },
+    "neon": { bg: '#000000', trail: 'speed', glow: 20, composite: 'lighter', desc: "Néon Cyberpunk" },
+    "retro": { bg: '#0f380f', trail: 'solid', glow: 5, composite: 'source-over', desc: "Rétro Phosphore" }
+};
+
 // --- CONFIGURATION ---
 // Structure globale
 const settings = {
@@ -24,7 +32,8 @@ const settings = {
     trailMode: 'speed', // 'solid', 'speed', 'rainbow', 'time'
     butterfly: false,
     butterflyCount: 50,
-    baseColor: '#3498db'
+    baseColor: '#3498db',
+    theme: 'default'
 };
 
 // Variables dérivées / Runtime
@@ -227,6 +236,36 @@ function generateSettingsUI() {
         <input type="range" id="inp_trlen" min="0" max="1000" step="10" value="${settings.trailLength === Infinity ? 1000 : settings.trailLength}">
     `;
     fxGroup.appendChild(trDiv);
+
+    // Theme Selector
+    const themeDiv = document.createElement('div');
+    themeDiv.style.marginTop = "10px";
+    themeDiv.innerHTML = `<label>Thème Visuel:</label>`;
+    const selTheme = document.createElement('select');
+    selTheme.style.width = "100%";
+    selTheme.style.padding = "5px";
+    selTheme.style.background = "#223";
+    selTheme.style.color = "white";
+    selTheme.style.border = "none";
+    
+    Object.keys(themes).forEach(k => {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = themes[k].desc;
+        if(settings.theme === k) opt.selected = true;
+        selTheme.appendChild(opt);
+    });
+    
+    selTheme.addEventListener('change', e => {
+        settings.theme = e.target.value;
+        const t = themes[settings.theme];
+        // Apply immediate changes (bg) via CSS or Canvas clear
+        document.body.style.backgroundColor = t.bg;
+    });
+
+    themeDiv.appendChild(selTheme);
+    fxGroup.appendChild(themeDiv);
+
     dynamicSettingsDiv.appendChild(fxGroup);
 
     // Listeners FX
@@ -525,23 +564,32 @@ function update() {
 }
 
 function draw() {
-    // Effet de trainée légère sur le fond si on voulait (non fait ici)
-    ctx.clearRect(0, 0, width, height);
+    const currentTheme = themes[settings.theme];
+    
+    // Clear avec couleur du thème
+    ctx.fillStyle = currentTheme.bg;
+    ctx.fillRect(0, 0, width, height);
+    
+    // Setup Glow & Composite
+    ctx.shadowBlur = currentTheme.glow;
+    ctx.shadowColor = settings.theme === 'neon' ? settings.baseColor : 'transparent';
+    ctx.globalCompositeOperation = currentTheme.composite;
 
     // 1. DESSINER LA TRACE (MASTER)
     if (trail.length > 1) {
-        ctx.lineWidth = 2;
         
         if (settings.trailMode === 'solid') {
+            ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.strokeStyle = settings.baseColor;
+            ctx.strokeStyle = settings.theme === 'retro' ? '#00ff00' : settings.baseColor;
+            if (settings.theme === 'neon') ctx.shadowColor = settings.baseColor;
+            
             ctx.moveTo(trail[0].x, trail[0].y);
             for (let i = 1; i < trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
             ctx.stroke();
         } 
         else {
-            // Modes Rainbow / Speed : On doit dessiner segment par segment ou grouper
-            // Pour perf, on dessine segment par segment (Canvas supporte bien ~1000 calls)
+            // Modes Rainbow / Speed / Neon Advanced
             for (let i = 1; i < trail.length; i++) {
                 const p1 = trail[i-1];
                 const p2 = trail[i];
@@ -550,36 +598,46 @@ function draw() {
                 ctx.moveTo(p1.x, p1.y);
                 ctx.lineTo(p2.x, p2.y);
                 
-                // COULEUR
-                let hue = 200; // default blue
+                // COULEUR & STYLE
+                let hue = 200; 
                 let sat = '100%';
                 let light = '50%';
+                let alpha = 1.0;
+                let lw = 2;
+
+                // Fading : les vieux points sont transparents
+                // Index 0 = le plus vieux
+                const ageRatio = i / trail.length; // 0..1
+                alpha = ageRatio; 
 
                 if (settings.trailMode === 'speed') {
-                    // Vitesse map : 0 -> 240 (Bleu), Max -> 0 (Rouge)
-                    // Vitesse typique ~0 à 20
                     const vNorm = Math.min(p2.v * 5, 240);
                     hue = 240 - vNorm;
+                    if(settings.theme === 'neon') {
+                         light = '60%';
+                         lw = 1 + (p2.v * 0.5); // Epaisseur dynamique
+                    }
                 } else if (settings.trailMode === 'rainbow') {
-                    // Basé sur le temps de création
                     hue = (p2.t * 2) % 360;
                 } else if (settings.trailMode === 'rainbow-cycle') {
-                    // Basé sur la position dans la trace (effet serpent qui avance)
                     hue = (i * 2 + timeStep) % 360;
                 }
 
-                ctx.strokeStyle = `hsl(${hue}, ${sat}, ${light})`;
+                ctx.lineWidth = lw;
+                ctx.strokeStyle = `hsla(${hue}, ${sat}, ${light}, ${alpha})`;
+                if(settings.theme === 'neon') ctx.shadowColor = ctx.strokeStyle;
+                
                 ctx.stroke();
             }
         }
     }
 
     // 2. DESSINER LES CLONES (BUTTERFLY)
-    // Transparents et fins
     if (settings.butterfly) {
-        ctx.globalAlpha = 0.15; // Très transparent
+        ctx.globalAlpha = 0.15;
         ctx.lineWidth = 1;
-        ctx.strokeStyle = '#aaa';
+        ctx.strokeStyle = settings.theme === 'retro' ? '#004400' : '#aaa';
+        ctx.shadowBlur = 0; // Pas de glow sur les clones pour perf
         
         for (let k = 1; k < pendulums.length; k++) {
             const pos = getPendulumPositions(pendulums[k]);
@@ -594,6 +652,8 @@ function draw() {
             ctx.stroke();
         }
         ctx.globalAlpha = 1.0;
+        // Retablir glow
+        ctx.shadowBlur = currentTheme.glow;
     }
 
     // 3. DESSINER LE MASTER
@@ -606,7 +666,7 @@ function draw() {
         ctx.beginPath();
         ctx.moveTo(px, py);
         ctx.lineTo(p.x, p.y);
-        ctx.strokeStyle = '#fff';
+        ctx.strokeStyle = settings.theme === 'retro' ? '#00ff00' : '#fff';
         ctx.lineWidth = 3;
         ctx.stroke();
 
@@ -614,6 +674,13 @@ function draw() {
         ctx.beginPath();
         ctx.arc(p.x, p.y, Math.sqrt(pendulums[0][i].m) * 2, 0, Math.PI * 2);
         ctx.fillStyle = pendulums[0][i].color;
+        
+        if (settings.theme === 'neon') {
+            ctx.fillStyle = '#fff';
+            ctx.shadowColor = pendulums[0][i].color;
+            ctx.shadowBlur = 30;
+        }
+        
         ctx.fill();
 
         px = p.x; py = p.y;
@@ -624,6 +691,10 @@ function draw() {
     ctx.arc(cx, cy, 5, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
     ctx.fill();
+    
+    // Reset context
+    ctx.shadowBlur = 0;
+    ctx.globalCompositeOperation = 'source-over';
 }
 
 function loop() {
