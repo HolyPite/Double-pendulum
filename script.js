@@ -87,7 +87,7 @@ function solveLinearSystem(A, B) {
     for (let i = n - 1; i >= 0; i--) {
         let sum = 0;
         for (let j = i + 1; j < n; j++) sum += mat[i][j] * x[j];
-        x[i] = (res[i] - sum) / mat[i][i];
+        x[i] = Math.abs(mat[i][i]) < 1e-10 ? 0 : (res[i] - sum) / mat[i][i];
     }
     return x;
 }
@@ -190,7 +190,7 @@ function generateSettingsUI() {
         settings.nArms = s.nArms;
         settings.g = s.g;
         settings.resistance = s.resistance * 100; // stored as 0-1 approx
-        f_drag = 1 - (s.resistance / 1000); // Recalculer f_drag
+        f_drag = 1 - (settings.resistance / 1000); // Recalculer f_drag
 
         inpN.value = s.nArms; valN.textContent = s.nArms; // Update global input
 
@@ -451,7 +451,13 @@ window.addEventListener('mousemove', (e) => {
     }
     const dx = mx - prevX;
     const dy = my - prevY;
-    pendulums[0][dragging].a = Math.atan2(dx, dy);
+    const newAngle = Math.atan2(dx, dy);
+    pendulums[0][dragging].a = newAngle;
+
+    // Synchroniser les clones sur le master pendant le drag
+    for (let k = 1; k < pendulums.length; k++) {
+        pendulums[k][dragging].a = newAngle;
+    }
 
     // Effacer trace
     trail = [];
