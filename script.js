@@ -16,10 +16,15 @@ let width, height, cx, cy;
 
 // --- THEMES ---
 const themes = {
-    "default": { bg: '#1a1a1a', trail: 'speed', glow: 0, composite: 'source-over', desc: "Défaut" },
-    "neon": { bg: '#000000', trail: 'speed', glow: 20, composite: 'lighter', desc: "Néon Cyberpunk" },
-    "retro": { bg: '#001a1a', trail: 'solid', glow: 0, composite: 'source-over', desc: "Blueprint (Retro)" }
+    "default": { bg: '#1a1a1a', trail: 'speed', glow: 0, composite: 'source-over', desc: "Défaut", dark: true },
+    "neon":    { bg: '#000000', trail: 'speed', glow: 20, composite: 'lighter', desc: "Néon Cyberpunk", dark: true },
+    "retro":   { bg: '#001a1a', trail: 'solid', glow: 0, composite: 'source-over', desc: "Blueprint (Retro)", dark: true },
+    "cosmos":  { bg: '#000005', trail: 'rainbow', glow: 8, composite: 'source-over', desc: "Cosmos", dark: true },
+    "minimal": { bg: '#f0f0eb', trail: 'solid', glow: 0, composite: 'source-over', desc: "Minimal", dark: false }
 };
+
+// Étoiles du thème Cosmos (générées une fois)
+let stars = [];
 
 // --- CONFIGURATION ---
 // Structure globale
@@ -33,7 +38,8 @@ const settings = {
     butterfly: false,
     butterflyCount: 50,
     baseColor: '#3498db',
-    theme: 'default'
+    theme: 'default',
+    showHUD: true
 };
 
 // Variables dérivées / Runtime
@@ -373,6 +379,18 @@ inpN.addEventListener('input', (e) => {
 
 // --- ENGINE ---
 
+function generateStars() {
+    stars = [];
+    for (let i = 0; i < 220; i++) {
+        stars.push({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            r: Math.random() * 1.4 + 0.3,
+            a: Math.random() * 0.6 + 0.2
+        });
+    }
+}
+
 function resize() {
     width = window.innerWidth;
     height = window.innerHeight;
@@ -380,6 +398,7 @@ function resize() {
     canvas.height = height;
     cx = width / 2;
     cy = height / 3;
+    generateStars();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -425,6 +444,9 @@ document.addEventListener('keydown', (e) => {
         case 'KeyF':
             if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
             else document.exitFullscreen();
+            break;
+        case 'KeyH':
+            settings.showHUD = !settings.showHUD;
             break;
         default:
             // Touches 1-6 pour les scénarios
@@ -678,6 +700,106 @@ function update() {
     }
 }
 
+function computeEnergy() {
+    const arms = pendulums[0];
+    const n = arms.length;
+    let ke = 0, pe = 0;
+
+    // Positions cartésiennes et vitesses de chaque masse
+    let px = 0, py = 0; // relatif au pivot (y positif = bas)
+    for (let i = 0; i < n; i++) {
+        const a = arms[i];
+        // Déplacement bras i
+        const dx = a.r * Math.sin(a.a);
+        const dy = a.r * Math.cos(a.a);
+        px += dx; py += dy;
+
+        // Vitesse cartésienne (contribution du bras i et de tous ceux avant)
+        let vxi = 0, vyi = 0;
+        for (let j = 0; j <= i; j++) {
+            vxi += arms[j].r * arms[j].v * Math.cos(arms[j].a);
+            vyi -= arms[j].r * arms[j].v * Math.sin(arms[j].a);
+        }
+        ke += 0.5 * a.m * (vxi * vxi + vyi * vyi);
+        // Énergie potentielle : hauteur = -py (car y canvas vers le bas)
+        // Référence au pivot → pe = m * g * (-py) mais en unités canvas
+        pe += a.m * settings.g * (-py);
+    }
+    return { ke, pe, total: ke + pe };
+}
+
+function drawMass(x, y, radius, color, theme) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+
+    if (theme === 'retro') {
+        ctx.fillStyle = 'rgba(0, 255, 255, 0.12)';
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 2;
+        ctx.fill();
+        ctx.stroke();
+    } else if (theme === 'neon') {
+        ctx.fillStyle = '#fff';
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 28;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    } else if (theme === 'cosmos') {
+        // Sphère 3D avec gradient radial
+        const grad = ctx.createRadialGradient(x - radius * 0.35, y - radius * 0.35, radius * 0.05, x, y, radius);
+        grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+        grad.addColorStop(0.4, color);
+        grad.addColorStop(1, 'rgba(0,0,20,0.8)');
+        ctx.fillStyle = grad;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 18;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    } else if (theme === 'minimal') {
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fill();
+    } else {
+        // Gradient léger pour le thème défaut
+        const grad = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, radius * 0.05, x, y, radius);
+        grad.addColorStop(0, 'rgba(255,255,255,0.5)');
+        grad.addColorStop(0.5, color);
+        grad.addColorStop(1, 'rgba(0,0,0,0.5)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+    }
+}
+
+function drawHUD(energy) {
+    if (!settings.showHUD) return;
+    const t = themes[settings.theme];
+    const isDark = t.dark;
+    const textColor = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(30,30,30,0.85)';
+    const bgColor = isDark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.6)';
+
+    const x = width - 175;
+    const y = 18;
+    const lh = 18;
+
+    ctx.save();
+    ctx.fillStyle = bgColor;
+    ctx.beginPath();
+    ctx.roundRect(x - 8, y - 14, 168, 88, 6);
+    ctx.fill();
+
+    ctx.font = '12px monospace';
+    ctx.fillStyle = textColor;
+    ctx.fillText(`FPS: ${Math.round(fps)}`, x, y);
+    ctx.fillStyle = isDark ? '#ff6b6b' : '#cc3333';
+    ctx.fillText(`KE: ${energy.ke.toFixed(0)}`, x, y + lh);
+    ctx.fillStyle = isDark ? '#74b9ff' : '#1a5ccc';
+    ctx.fillText(`PE: ${energy.pe.toFixed(0)}`, x, y + lh * 2);
+    ctx.fillStyle = isDark ? '#55efc4' : '#006644';
+    ctx.fillText(`Total: ${energy.total.toFixed(0)}`, x, y + lh * 3);
+    ctx.fillStyle = textColor;
+    ctx.fillText(`[H] masquer HUD`, x, y + lh * 4);
+    ctx.restore();
+}
+
 function draw() {
     const currentTheme = themes[settings.theme];
 
@@ -685,69 +807,69 @@ function draw() {
     ctx.fillStyle = currentTheme.bg;
     ctx.fillRect(0, 0, width, height);
 
+    // Étoiles pour le thème Cosmos
+    if (settings.theme === 'cosmos') {
+        ctx.save();
+        for (const s of stars) {
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,255,255,${s.a})`;
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+
     // Grille pour le mode Retro
     if (settings.theme === 'retro') {
         drawGrid();
     }
 
-    // Setup Glow & Composite
-    // Optimisation: NEON ne met pas de glow sur la trace (trop coûteux)
-    // On met le glow uniquement sur les masses plus bas
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';
     ctx.globalCompositeOperation = currentTheme.composite;
 
     // 1. DESSINER LA TRACE (MASTER)
     if (trail.length > 1) {
-
         if (settings.trailMode === 'solid') {
-            ctx.lineWidth = 2;
+            ctx.lineWidth = settings.theme === 'minimal' ? 1.5 : 2;
             ctx.beginPath();
-            ctx.strokeStyle = settings.theme === 'retro' ? '#00ffff' : settings.baseColor; // Cyan pour Retro
-
+            let trailColor;
+            if (settings.theme === 'retro') trailColor = '#00ffff';
+            else if (settings.theme === 'minimal') trailColor = 'rgba(40,40,40,0.7)';
+            else trailColor = settings.baseColor;
+            ctx.strokeStyle = trailColor;
             ctx.moveTo(trail[0].x, trail[0].y);
             for (let i = 1; i < trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
             ctx.stroke();
-        }
-        else {
-            // Modes Rainbow / Speed / Neon Advanced
+        } else {
             for (let i = 1; i < trail.length; i++) {
                 const p1 = trail[i - 1];
                 const p2 = trail[i];
+                const ageRatio = i / trail.length;
 
-                ctx.beginPath();
-                ctx.moveTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y);
-
-                // COULEUR & STYLE
-                let hue = 200;
-                let sat = '100%';
-                let light = '50%';
-                let alpha = 1.0;
+                let hue = 200, sat = '100%', light = '50%';
+                let alpha = ageRatio;
                 let lw = 2;
-
-                // Fading : les vieux points sont transparents
-                // Index 0 = le plus vieux
-                const ageRatio = i / trail.length; // 0..1
-                alpha = ageRatio;
 
                 if (settings.trailMode === 'speed') {
                     const vNorm = Math.min(p2.v * 5, 240);
                     hue = 240 - vNorm;
-                    if (settings.theme === 'neon') {
-                        // Compensation visuelle: plus clair et plus épais
-                        light = '70%';
-                        sat = '100%';
-                        lw = 2 + (p2.v * 0.8);
+                    if (settings.theme === 'neon' || settings.theme === 'cosmos') {
+                        light = '65%';
+                        lw = 1.5 + (p2.v * 0.6);
                     }
                 } else if (settings.trailMode === 'rainbow') {
                     hue = (p2.t * 2) % 360;
+                    if (settings.theme === 'cosmos') light = '60%';
                 } else if (settings.trailMode === 'rainbow-cycle') {
                     hue = (i * 2 + timeStep) % 360;
                 }
 
                 ctx.lineWidth = lw;
                 ctx.strokeStyle = `hsla(${hue}, ${sat}, ${light}, ${alpha})`;
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
                 ctx.stroke();
             }
         }
@@ -755,66 +877,67 @@ function draw() {
 
     // 2. DESSINER LES CLONES (BUTTERFLY)
     if (settings.butterfly) {
-        ctx.globalAlpha = 0.15;
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over'; // clones toujours en source-over
+        ctx.globalAlpha = settings.theme === 'cosmos' ? 0.12 : 0.15;
         ctx.lineWidth = 1;
-        ctx.strokeStyle = settings.theme === 'retro' ? '#004444' : '#aaa'; // Sombre cyan pour retro
+        ctx.strokeStyle = settings.theme === 'retro' ? '#004444'
+            : settings.theme === 'minimal' ? '#aaa'
+            : settings.theme === 'cosmos' ? '#8888ff'
+            : '#aaa';
         ctx.shadowBlur = 0;
 
         for (let k = 1; k < pendulums.length; k++) {
             const pos = getPendulumPositions(pendulums[k]);
-            let px = cx, py = cy;
-
+            let lpx = cx, lpy = cy;
             ctx.beginPath();
-            for (let pt of pos) {
-                ctx.moveTo(px, py);
+            for (const pt of pos) {
+                ctx.moveTo(lpx, lpy);
                 ctx.lineTo(pt.x, pt.y);
-                px = pt.x; py = pt.y;
+                lpx = pt.x; lpy = pt.y;
             }
             ctx.stroke();
         }
-        ctx.globalAlpha = 1.0;
+        ctx.restore();
     }
 
-    // ACTIVER GLOW UNIQUEMENT POUR LES PENDULES (Masses + Tiges)
-    if (settings.theme === 'neon') {
-        ctx.shadowBlur = currentTheme.glow;
-        ctx.shadowColor = settings.baseColor; // Ou couleur dynamique
-    }
+    // Reset composite avant dessin pendule
+    ctx.globalCompositeOperation = currentTheme.composite;
 
     // 3. DESSINER LE MASTER
     const posMaster = getPendulumPositions(pendulums[0]);
     let px = cx, py = cy;
+
     for (let i = 0; i < posMaster.length; i++) {
         const p = posMaster[i];
+        const arm = pendulums[0][i];
+        const radius = Math.sqrt(arm.m) * 2;
 
         // Tige
         ctx.beginPath();
         ctx.moveTo(px, py);
         ctx.lineTo(p.x, p.y);
-        ctx.strokeStyle = settings.theme === 'retro' ? '#00ffff' : '#fff';
-        ctx.lineWidth = 3;
+        if (settings.theme === 'retro') {
+            ctx.strokeStyle = '#00ffff';
+        } else if (settings.theme === 'minimal') {
+            ctx.strokeStyle = '#333';
+        } else if (settings.theme === 'cosmos') {
+            ctx.strokeStyle = 'rgba(180,180,255,0.6)';
+            ctx.shadowColor = 'rgba(100,100,255,0.4)';
+            ctx.shadowBlur = 6;
+        } else {
+            ctx.strokeStyle = '#fff';
+        }
+        if (settings.theme === 'neon') {
+            ctx.shadowBlur = currentTheme.glow;
+            ctx.shadowColor = arm.color;
+        }
+        ctx.lineWidth = settings.theme === 'minimal' ? 2 : 3;
         ctx.stroke();
+        ctx.shadowBlur = 0;
 
         // Masse
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.sqrt(pendulums[0][i].m) * 2, 0, Math.PI * 2);
-
-        if (settings.theme === 'retro') {
-            // Wireframe style
-            ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
-            ctx.strokeStyle = '#00ffff';
-            ctx.lineWidth = 2;
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            ctx.fillStyle = pendulums[0][i].color;
-            if (settings.theme === 'neon') {
-                ctx.fillStyle = '#fff';
-                ctx.shadowColor = pendulums[0][i].color;
-                ctx.shadowBlur = 30;
-            }
-            ctx.fill();
-        }
+        drawMass(p.x, p.y, radius, arm.color, settings.theme);
 
         px = p.x; py = p.y;
     }
@@ -822,12 +945,20 @@ function draw() {
     // Pivot
     ctx.beginPath();
     ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-    ctx.fillStyle = settings.theme === 'retro' ? '#00ffff' : '#fff';
+    if (settings.theme === 'retro') ctx.fillStyle = '#00ffff';
+    else if (settings.theme === 'minimal') ctx.fillStyle = '#333';
+    else if (settings.theme === 'cosmos') { ctx.fillStyle = '#8888ff'; ctx.shadowColor = '#8888ff'; ctx.shadowBlur = 10; }
+    else ctx.fillStyle = '#fff';
     ctx.fill();
 
     // Reset context
     ctx.shadowBlur = 0;
     ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1.0;
+
+    // HUD
+    const energy = computeEnergy();
+    drawHUD(energy);
 }
 
 function drawGrid() {
