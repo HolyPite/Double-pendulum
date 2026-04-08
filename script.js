@@ -42,6 +42,9 @@ let isPaused = false;
 let dragging = -1;
 let timeStep = 0; // Pour le mode arc-en-ciel temporel
 
+// Historique drag pour calcul de vitesse angulaire au lâcher
+let dragHistory = []; // [{angle, time}]
+
 // STATE
 // pendulums[0] est le PRINCIPAL.
 // pendulums[1...N] sont les CLONES (Butterfly).
@@ -490,8 +493,27 @@ canvas.addEventListener('mousedown', (e) => {
 
 window.addEventListener('mouseup', () => {
     if (dragging !== -1) {
-        // Reset vitesse MASTER
-        pendulums[0].forEach(a => a.v = 0);
+        // Calculer vitesse angulaire à partir de l'historique de drag
+        let angularVel = 0;
+        if (dragHistory.length >= 2) {
+            const oldest = dragHistory[0];
+            const newest = dragHistory[dragHistory.length - 1];
+            const dt = (newest.time - oldest.time) / 1000; // en secondes
+            if (dt > 0.001) {
+                // Différence d'angle avec gestion du saut ±π
+                let dAngle = newest.angle - oldest.angle;
+                while (dAngle > Math.PI) dAngle -= 2 * Math.PI;
+                while (dAngle < -Math.PI) dAngle += 2 * Math.PI;
+                // Convertir en unités de simulation (simSpeed ≈ facteur temps)
+                angularVel = (dAngle / dt) * 0.016; // 0.016 ≈ 60fps frame time
+            }
+        }
+        dragHistory = [];
+
+        // Appliquer vitesse au bras dragué, reset les autres
+        pendulums[0].forEach((a, idx) => {
+            a.v = idx === dragging ? Math.max(-15, Math.min(15, angularVel)) : 0;
+        });
 
         // Si Butterfly : Reset des clones sur le master + bruit
         if (settings.butterfly) {
@@ -524,6 +546,10 @@ window.addEventListener('mousemove', (e) => {
     const dy = my - prevY;
     const newAngle = Math.atan2(dx, dy);
     pendulums[0][dragging].a = newAngle;
+
+    // Historique pour calcul vitesse au lâcher
+    dragHistory.push({ angle: newAngle, time: performance.now() });
+    if (dragHistory.length > 8) dragHistory.shift();
 
     // Synchroniser les clones sur le master pendant le drag
     for (let k = 1; k < pendulums.length; k++) {
