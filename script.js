@@ -10,6 +10,69 @@ const helpOverlay = document.getElementById('helpOverlay');
 
 let width, height, cx, cy;
 
+// --- AUDIO ---
+let audioCtx = null;
+let audioOscillators = []; // Un oscillateur par bras
+let audioGains = [];       // Gain par bras
+let masterGain = null;
+
+function initAudio() {
+    if (audioCtx) return; // déjà initialisé
+    const AC = window.AudioContext || /** @type {any} */ (window).webkitAudioContext;
+    audioCtx = new AC();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.15;
+    masterGain.connect(audioCtx.destination);
+}
+
+function startAudio() {
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    stopAudio(); // nettoyer les anciens
+
+    const n = settings.nArms;
+    for (let i = 0; i < n; i++) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = i === 0 ? 'sine' : (i === 1 ? 'triangle' : 'sawtooth');
+        osc.frequency.value = 110 + i * 55; // A2, D3, G3, C4...
+        gain.gain.value = 0;
+
+        osc.connect(gain);
+        gain.connect(masterGain);
+        osc.start();
+
+        audioOscillators.push(osc);
+        audioGains.push(gain);
+    }
+}
+
+function stopAudio() {
+    audioOscillators.forEach(o => { try { o.stop(); } catch {} });
+    audioOscillators = [];
+    audioGains = [];
+}
+
+function updateAudio() {
+    if (!settings.audioEnabled || !audioCtx || audioOscillators.length === 0) return;
+    const arms = pendulums[0];
+    const t = audioCtx.currentTime;
+
+    arms.forEach((arm, i) => {
+        if (!audioOscillators[i]) return;
+        // Fréquence : base + vitesse angulaire → 80–600 Hz
+        const speed = Math.abs(arm.v);
+        const freq = 80 + Math.min(speed * 60, 520);
+        audioOscillators[i].frequency.setTargetAtTime(freq, t, 0.05);
+
+        // Volume : proportionnel à la vitesse, plafond à 0.4 par bras
+        const vol = Math.min(speed * 0.08, 0.4);
+        audioGains[i].gain.setTargetAtTime(vol, t, 0.08);
+    });
+}
+
 
 // --- THEMES ---
 const themes = {
@@ -38,7 +101,8 @@ const settings = {
     theme: 'default',
     showHUD: true,
     attractorMode: false,
-    showEnergyGraph: false
+    showEnergyGraph: false,
+    audioEnabled: false
 };
 
 // Variables dérivées / Runtime
@@ -149,6 +213,9 @@ function initSimulation(customParams = null) {
 
     // Refresh UI si nécessaire (valeurs masses/longueurs peuvent avoir changé)
     generateSettingsUI();
+
+    // Redémarrer l'audio si actif (nombre de bras peut avoir changé)
+    if (settings.audioEnabled) startAudio();
 }
 
 function initButterflyClones() {
@@ -363,6 +430,23 @@ function bindStaticUIEvents() {
     });
 
     // Avancé — Attracteur
+    // Audio
+    document.getElementById('chk_audio').addEventListener('change', e => {
+        settings.audioEnabled = e.target.checked;
+        if (settings.audioEnabled) {
+            startAudio();
+            document.getElementById('audio_options').classList.add('visible');
+        } else {
+            stopAudio();
+            document.getElementById('audio_options').classList.remove('visible');
+        }
+    });
+    document.getElementById('inp_audio_vol').addEventListener('input', e => {
+        const vol = +e.target.value / 100;
+        document.getElementById('val_audio_vol').textContent = e.target.value;
+        if (masterGain) masterGain.gain.setTargetAtTime(vol * 0.3, audioCtx.currentTime, 0.05);
+    });
+
     document.getElementById('chk_attractor').addEventListener('change', e => {
         settings.attractorMode = e.target.checked;
         if (settings.attractorMode) trail = [];
@@ -776,6 +860,9 @@ function update() {
         energyHistory.push(e);
         if (energyHistory.length > ENERGY_HISTORY_LEN) energyHistory.shift();
     }
+
+    // Audio
+    updateAudio();
 }
 
 function computeEnergy() {

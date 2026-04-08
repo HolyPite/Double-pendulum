@@ -132,6 +132,17 @@
                 <!-- Onglet Avancé -->
                 <div class="tab-pane hidden" id="tab-avance">
                     <div class="setting-group">
+                        <h3>Sonification 🔊</h3>
+                        <p class="hint">Chaque bras génère une fréquence basée sur sa vitesse angulaire.</p>
+                        <label class="toggle-label">
+                            <input type="checkbox" id="chk_audio"> Activer l'audio
+                        </label>
+                        <div id="audio_options" class="hidden-opt">
+                            <label>Volume: <span id="val_audio_vol">15</span>%</label>
+                            <input type="range" id="inp_audio_vol" min="0" max="100" step="5" value="15">
+                        </div>
+                    </div>
+                    <div class="setting-group">
                         <h3>Mode Attracteur</h3>
                         <p class="hint">Trace infinie, fond assombri — idéal pour les captures d'art.</p>
                         <label class="toggle-label">
