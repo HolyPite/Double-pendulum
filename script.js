@@ -45,6 +45,11 @@ let timeStep = 0; // Pour le mode arc-en-ciel temporel
 // Historique drag pour calcul de vitesse angulaire au lâcher
 let dragHistory = []; // [{angle, time}]
 
+// Performance monitoring
+let lastFrameTime = performance.now();
+let fps = 60;
+let fpsAlpha = 0.1; // lissage exponentiel
+
 // STATE
 // pendulums[0] est le PRINCIPAL.
 // pendulums[1...N] sont les CLONES (Butterfly).
@@ -594,12 +599,13 @@ function computeDerivatives(armState, pendulumInstance) {
     return armState.map((_, i) => ({ da: armState[i].v, dv: accel[i] }));
 }
 
-function updatePendulumRK4(pIndex) {
+function updatePendulumRK4(pIndex, simSteps) {
     const arms = pendulums[pIndex];
     const n = arms.length;
     const dt = 0.2;
+    const steps = simSteps !== undefined ? simSteps : settings.simSpeed;
 
-    for (let step = 0; step < settings.simSpeed; step++) {
+    for (let step = 0; step < steps; step++) {
         const state0 = arms.map(a => ({ a: a.a, v: a.v }));
 
         const k1 = computeDerivatives(state0, arms);
@@ -625,18 +631,24 @@ function updatePendulumRK4(pIndex) {
 
 
 function update() {
+    // Mesure FPS (lissé)
+    const now = performance.now();
+    const dt_real = now - lastFrameTime;
+    lastFrameTime = now;
+    fps = fps * (1 - fpsAlpha) + (1000 / dt_real) * fpsAlpha;
+
     if (dragging === -1 && !isPaused) {
         timeStep++;
 
         // Update Master
         updatePendulumRK4(0);
 
-        // Update Clones (Butterfly)
+        // Update Clones (Butterfly) — vitesse réduite selon les FPS et le nombre de clones
         if (settings.butterfly) {
-            // Optimization: If > 50 clones, maybe reduce simSpeed for them? 
-            // For now, full simulation.
+            // Cap simSpeed pour les clones : max 3x, moins si on a beaucoup de clones ou FPS < 40
+            const maxCloneSpeed = fps < 40 ? 1 : (fps < 55 ? 2 : Math.min(settings.simSpeed, 3));
             for (let k = 1; k < pendulums.length; k++) {
-                updatePendulumRK4(k);
+                updatePendulumRK4(k, maxCloneSpeed);
             }
         }
     }
