@@ -143,6 +143,17 @@
                         </div>
                     </div>
                     <div class="setting-group">
+                        <h3>Multi-Pendules</h3>
+                        <p class="hint">Plusieurs pendules indépendants côte à côte, chacun avec sa propre couleur.</p>
+                        <label class="toggle-label">
+                            <input type="checkbox" id="chk_multi"> Mode Multi-Pendules
+                        </label>
+                        <div id="multi_options" class="hidden-opt">
+                            <label>Nombre: <span id="val_multi_count">3</span></label>
+                            <input type="range" id="inp_multi_count" min="2" max="8" step="1" value="3">
+                        </div>
+                    </div>
+                    <div class="setting-group">
                         <h3>Mode Attracteur</h3>
                         <p class="hint">Trace infinie, fond assombri — idéal pour les captures d'art.</p>
                         <label class="toggle-label">

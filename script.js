@@ -102,7 +102,9 @@ const settings = {
     showHUD: true,
     attractorMode: false,
     showEnergyGraph: false,
-    audioEnabled: false
+    audioEnabled: false,
+    multiMode: false,
+    multiCount: 3
 };
 
 // Variables dérivées / Runtime
@@ -125,13 +127,18 @@ let energyHistory = []; // [{ke, pe, total}]
 
 // STATE
 // pendulums[0] est le PRINCIPAL.
-// pendulums[1...N] sont les CLONES (Butterfly).
+// pendulums[1...N] sont les CLONES (Butterfly) OU d'autres pendules indépendants.
 // Chaque élément est un tableau d'objets "Arm" {r, m, a, v, color...}
 let pendulums = [];
 
 // Trace du pendule principal seulement (pour perf)
 // Array of {x, y, v (vitesse), t (temps)}
 let trail = [];
+
+// Mode multi-pendules : tableau de pendules indépendants avec leurs propres traces et pivots
+// Chaque entrée: { arms: [...], trail: [], color: '#hex', pivotX, pivotY }
+let multiPendulums = [];
+const MULTI_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#e91e63'];
 
 // --- PRESETS (SCÉNARIOS) ---
 const scenarios = {
@@ -236,6 +243,156 @@ function initButterflyClones() {
         });
 
         pendulums.push(clone);
+    }
+}
+
+// --- MULTI-PENDULES ---
+
+function initMultiPendulums() {
+    multiPendulums = [];
+    if (!settings.multiMode) return;
+
+    const count = settings.multiCount;
+    // Disposition des pivots en grille ou arc selon le nombre
+    const margin = 120;
+    const usableW = width - margin * 2;
+    const cols = Math.min(count, 4);
+    const rows = Math.ceil(count / cols);
+    const cellW = usableW / cols;
+    const cellH = (height * 0.7) / rows;
+
+    for (let k = 0; k < count; k++) {
+        const col = k % cols;
+        const row = Math.floor(k / cols);
+        const pivotX = margin + cellW * col + cellW / 2;
+        const pivotY = margin * 0.5 + cellH * row + cellH * 0.25;
+
+        const color = MULTI_COLORS[k % MULTI_COLORS.length];
+        const maxLen = Math.min(cellW, cellH) * 0.32;
+
+        const arms = [];
+        for (let i = 0; i < settings.nArms; i++) {
+            arms.push({
+                r: maxLen - i * (maxLen * 0.1),
+                m: 15 - i * 2,
+                a: Math.PI / 2 + (k * 0.4) + (i * 0.15),
+                v: 0,
+                color
+            });
+        }
+        multiPendulums.push({ arms, trail: [], pivotX, pivotY, color });
+    }
+}
+
+function updateMultiPendulums() {
+    if (!settings.multiMode || isPaused) return;
+    for (const mp of multiPendulums) {
+        // RK4 pour ce pendule avec cx/cy remplacés par pivotX/pivotY
+        updatePendulumArms(mp.arms, settings.simSpeed);
+
+        // Trail
+        const pos = getPositionsFromPivot(mp.arms, mp.pivotX, mp.pivotY);
+        const tip = pos[pos.length - 1];
+        let speed = 0;
+        if (mp.trail.length > 0) {
+            const last = mp.trail[mp.trail.length - 1];
+            speed = Math.hypot(tip.x - last.x, tip.y - last.y);
+        }
+        mp.trail.push({ x: tip.x, y: tip.y, v: speed, t: timeStep });
+        const maxLen = settings.trailLength === Infinity ? 300 : Math.min(settings.trailLength, 300);
+        if (mp.trail.length > maxLen) mp.trail.shift();
+    }
+}
+
+function getPositionsFromPivot(armsList, pivX, pivY) {
+    let x = pivX, y = pivY;
+    const positions = [];
+    for (const arm of armsList) {
+        x += arm.r * Math.sin(arm.a);
+        y += arm.r * Math.cos(arm.a);
+        positions.push({ x, y });
+    }
+    return positions;
+}
+
+// Version de updatePendulumRK4 qui prend un tableau de bras directement (sans index global)
+function updatePendulumArms(arms, steps) {
+    const n = arms.length;
+    const dt = 0.2;
+    for (let step = 0; step < steps; step++) {
+        const state0 = arms.map(a => ({ a: a.a, v: a.v }));
+        const k1 = computeDerivatives(state0, arms);
+        const state1 = state0.map((s, i) => ({ a: s.a + k1[i].da * dt * 0.5, v: s.v + k1[i].dv * dt * 0.5 }));
+        const k2 = computeDerivatives(state1, arms);
+        const state2 = state0.map((s, i) => ({ a: s.a + k2[i].da * dt * 0.5, v: s.v + k2[i].dv * dt * 0.5 }));
+        const k3 = computeDerivatives(state2, arms);
+        const state3 = state0.map((s, i) => ({ a: s.a + k3[i].da * dt, v: s.v + k3[i].dv * dt }));
+        const k4 = computeDerivatives(state3, arms);
+        for (let i = 0; i < n; i++) {
+            arms[i].a += (k1[i].da + 2*k2[i].da + 2*k3[i].da + k4[i].da) / 6 * dt;
+            arms[i].v += (k1[i].dv + 2*k2[i].dv + 2*k3[i].dv + k4[i].dv) / 6 * dt;
+            arms[i].v *= f_drag;
+        }
+    }
+}
+
+function drawMultiPendulums() {
+    if (!settings.multiMode) return;
+    const currentTheme = themes[settings.theme];
+
+    for (const mp of multiPendulums) {
+        const pos = getPositionsFromPivot(mp.arms, mp.pivotX, mp.pivotY);
+
+        // Trace
+        if (mp.trail.length > 1) {
+            for (let i = 1; i < mp.trail.length; i++) {
+                const p1 = mp.trail[i - 1];
+                const p2 = mp.trail[i];
+                const alpha = i / mp.trail.length;
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.strokeStyle = mp.color.replace(')', `, ${alpha})`).replace('rgb', 'rgba').replace('#', 'rgba(').replace(/rgba\(([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2}), /, (_, r, g, b) => `rgba(${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)}, `);
+                // Simplifié avec globalAlpha
+                ctx.globalAlpha = alpha * 0.7;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Tiges et masses
+        let px = mp.pivotX, py = mp.pivotY;
+        if (settings.theme === 'neon') { ctx.shadowBlur = 12; ctx.shadowColor = mp.color; }
+
+        for (let i = 0; i < pos.length; i++) {
+            const p = pos[i];
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(p.x, p.y);
+            ctx.strokeStyle = currentTheme.dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.4)';
+            ctx.lineWidth = 2;
+            ctx.globalCompositeOperation = currentTheme.composite;
+            ctx.stroke();
+
+            const r = Math.sqrt(mp.arms[i].m) * 1.8;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.fillStyle = mp.color;
+            ctx.fill();
+
+            px = p.x; py = p.y;
+        }
+
+        // Pivot
+        ctx.beginPath();
+        ctx.arc(mp.pivotX, mp.pivotY, 4, 0, Math.PI * 2);
+        ctx.fillStyle = currentTheme.dark ? '#fff' : '#333';
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
     }
 }
 
@@ -447,6 +604,19 @@ function bindStaticUIEvents() {
         if (masterGain) masterGain.gain.setTargetAtTime(vol * 0.3, audioCtx.currentTime, 0.05);
     });
 
+    // Multi-pendules
+    document.getElementById('chk_multi').addEventListener('change', e => {
+        settings.multiMode = e.target.checked;
+        document.getElementById('multi_options').classList.toggle('visible', settings.multiMode);
+        if (settings.multiMode) initMultiPendulums();
+        else multiPendulums = [];
+    });
+    document.getElementById('inp_multi_count').addEventListener('input', e => {
+        settings.multiCount = +e.target.value;
+        document.getElementById('val_multi_count').textContent = settings.multiCount;
+        if (settings.multiMode) initMultiPendulums();
+    });
+
     document.getElementById('chk_attractor').addEventListener('change', e => {
         settings.attractorMode = e.target.checked;
         if (settings.attractorMode) trail = [];
@@ -550,6 +720,7 @@ function resize() {
     cx = width / 2;
     cy = height / 3;
     generateStars();
+    if (settings.multiMode) initMultiPendulums();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -861,6 +1032,9 @@ function update() {
         if (energyHistory.length > ENERGY_HISTORY_LEN) energyHistory.shift();
     }
 
+    // Multi-pendules
+    updateMultiPendulums();
+
     // Audio
     updateAudio();
 }
@@ -1071,10 +1245,14 @@ function draw() {
         ctx.restore();
     }
 
+    // Multi-pendules indépendants
+    drawMultiPendulums();
+
     // Reset composite avant dessin pendule
     ctx.globalCompositeOperation = currentTheme.composite;
 
-    // 3. DESSINER LE MASTER
+    // 3. DESSINER LE MASTER (masqué en mode multi)
+    if (settings.multiMode) return; // multi mode gère son propre rendu
     const posMaster = getPendulumPositions(pendulums[0]);
     let px = cx, py = cy;
 
