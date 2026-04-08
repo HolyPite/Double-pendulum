@@ -242,6 +242,7 @@ function generateSettingsUI() {
     themeDiv.style.marginTop = "10px";
     themeDiv.innerHTML = `<label>Thème Visuel:</label>`;
     const selTheme = document.createElement('select');
+    selTheme.id = 'sel_theme';
     selTheme.style.width = "100%";
     selTheme.style.padding = "5px";
     selTheme.style.background = "#223";
@@ -385,6 +386,76 @@ pauseBtn.addEventListener('click', () => {
 settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
 closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
 settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) settingsModal.classList.add('hidden'); });
+
+// --- RACCOURCIS CLAVIER ---
+const scenarioKeys = Object.keys(scenarios);
+document.addEventListener('keydown', (e) => {
+    // Ne pas intercepter si un input/select a le focus
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+
+    switch (e.code) {
+        case 'Space':
+            e.preventDefault();
+            pauseBtn.click();
+            break;
+        case 'KeyR':
+            initSimulation();
+            break;
+        case 'KeyC':
+            trail = [];
+            break;
+        case 'KeyT': {
+            const themeList = Object.keys(themes);
+            const idx = themeList.indexOf(settings.theme);
+            settings.theme = themeList[(idx + 1) % themeList.length];
+            document.body.style.backgroundColor = themes[settings.theme].bg;
+            // Mettre à jour le select si le modal est ouvert
+            const sel = document.getElementById('sel_theme');
+            if (sel) sel.value = settings.theme;
+            break;
+        }
+        case 'KeyF':
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+            else document.exitFullscreen();
+            break;
+        default:
+            // Touches 1-6 pour les scénarios
+            if (e.key >= '1' && e.key <= '6') {
+                const idx = parseInt(e.key) - 1;
+                if (idx < scenarioKeys.length) {
+                    const s = scenarios[scenarioKeys[idx]];
+                    settings.nArms = s.nArms;
+                    settings.g = s.g;
+                    settings.resistance = s.resistance * 100;
+                    f_drag = 1 - (settings.resistance / 1000);
+                    if (inpN) { inpN.value = s.nArms; valN.textContent = s.nArms; }
+                    initSimulation(s);
+                }
+            }
+    }
+});
+
+// --- SUPPORT TACTILE ---
+function getTouchPosition(touch) {
+    return { clientX: touch.clientX, clientY: touch.clientY };
+}
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    canvas.dispatchEvent(new MouseEvent('mousedown', getTouchPosition(t)));
+}, { passive: false });
+
+window.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    window.dispatchEvent(new MouseEvent('mousemove', getTouchPosition(t)));
+}, { passive: false });
+
+window.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    window.dispatchEvent(new MouseEvent('mouseup', {}));
+}, { passive: false });
 
 
 // Calcul Positions (pour un pendule donné)
