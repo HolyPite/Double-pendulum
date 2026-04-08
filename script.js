@@ -1,15 +1,12 @@
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const resetBtn = document.getElementById('resetTrail');
+const resetTrailBtn = document.getElementById('resetTrail');
 const pauseBtn = document.getElementById('pauseBtn');
-
-// Modal Elements
+const resetBtn = document.getElementById('resetBtn');
 const settingsBtn = document.getElementById('settingsBtn');
-const settingsModal = document.getElementById('settingsModal');
-const closeSettings = document.getElementById('closeSettings');
-const dynamicSettingsDiv = document.getElementById('dynamic-settings');
-const inpN = document.getElementById('inp_n');
-const valN = document.getElementById('val_n');
+const sidePanel = document.getElementById('sidePanel');
+const closeSidePanel = document.getElementById('closeSidePanel');
+const helpOverlay = document.getElementById('helpOverlay');
 
 let width, height, cx, cy;
 
@@ -39,7 +36,8 @@ const settings = {
     butterflyCount: 50,
     baseColor: '#3498db',
     theme: 'default',
-    showHUD: true
+    showHUD: true,
+    attractorMode: false
 };
 
 // Variables dérivées / Runtime
@@ -171,210 +169,268 @@ function initButterflyClones() {
 
 // --- UI GENERATION ---
 
-function generateSettingsUI() {
-    dynamicSettingsDiv.innerHTML = '';
-
-    // 1. SCENARIOS DROPDOWN
-    const scenDiv = document.createElement('div');
-    scenDiv.className = 'setting-group';
-    scenDiv.style.borderBottom = "1px solid #444";
-    scenDiv.innerHTML = `<h3>Scénarios</h3>`;
-    const selScen = document.createElement('select');
-    selScen.style.width = "100%";
-    selScen.style.padding = "5px";
-    selScen.style.background = "#223";
-    selScen.style.color = "white";
-    selScen.style.border = "none";
-
-    Object.keys(scenarios).forEach(k => {
-        const opt = document.createElement('option');
-        opt.value = k;
-        opt.textContent = scenarios[k].desc;
-        selScen.appendChild(opt);
-    });
-
-    // Bouton charger
-    const btnLoad = document.createElement('button');
-    btnLoad.textContent = "Charger Scénario";
-    btnLoad.style.marginTop = "10px";
-    btnLoad.style.width = "100%";
-
-    btnLoad.onclick = () => {
-        const s = scenarios[selScen.value];
-        settings.nArms = s.nArms;
-        settings.g = s.g;
-        settings.resistance = s.resistance * 100; // stored as 0-1 approx
-        f_drag = 1 - (settings.resistance / 1000); // Recalculer f_drag
-
-        inpN.value = s.nArms; valN.textContent = s.nArms; // Update global input
-
-        initSimulation(s); // Restart with specific params
-    };
-
-    scenDiv.appendChild(selScen);
-    scenDiv.appendChild(btnLoad);
-    dynamicSettingsDiv.appendChild(scenDiv);
-
-
-    // 2. EFFETS VISUELS (Butterfly & Rainbow)
-    const fxGroup = document.createElement('div');
-    fxGroup.className = 'setting-group';
-    fxGroup.innerHTML = `<h3>Effets Visuels</h3>`;
-
-    // Butterfly
-    const bfDiv = document.createElement('div');
-    bfDiv.style.marginBottom = "10px";
-    bfDiv.innerHTML = `
-        <label style="display:inline-flex; align-items:center;">
-            <input type="checkbox" id="chk_bf" ${settings.butterfly ? 'checked' : ''} style="width:auto; margin-right:10px;"> 
-            Mode Effet Papillon 🦋
-        </label>
-        <div id="bf_options" style="display:${settings.butterfly ? 'block' : 'none'}; margin-left:20px; margin-top:5px;">
-             <label>Nombre de clones: <span id="val_bf_count">${settings.butterflyCount}</span></label>
-             <input type="range" id="inp_bf_count" min="10" max="200" step="10" value="${settings.butterflyCount}">
-        </div>
-    `;
-    fxGroup.appendChild(bfDiv);
-
-    // Trail Mode
-    const trDiv = document.createElement('div');
-    trDiv.innerHTML = `
-        <label>Style de Trace:</label>
-        <select id="sel_trail" style="width:100%; padding:5px; background:#223; color:white; border:none; margin-bottom:10px;">
-            <option value="solid" ${settings.trailMode === 'solid' ? 'selected' : ''}>Solide (Bleu)</option>
-            <option value="speed" ${settings.trailMode === 'speed' ? 'selected' : ''}>Vitesse (Bleu -> Rouge)</option>
-            <option value="rainbow" ${settings.trailMode === 'rainbow' ? 'selected' : ''}>Arc-en-ciel (Temps)</option>
-            <option value="rainbow-cycle" ${settings.trailMode === 'rainbow-cycle' ? 'selected' : ''}>Arc-en-ciel (Cyclique)</option>
-        </select>
-        <label>Longueur Trace: <span id="val_trlen">${settings.trailLength === Infinity ? '∞' : settings.trailLength}</span></label>
-        <input type="range" id="inp_trlen" min="0" max="1000" step="10" value="${settings.trailLength === Infinity ? 1000 : settings.trailLength}">
-    `;
-    fxGroup.appendChild(trDiv);
-
-    // Theme Selector
-    const themeDiv = document.createElement('div');
-    themeDiv.style.marginTop = "10px";
-    themeDiv.innerHTML = `<label>Thème Visuel:</label>`;
-    const selTheme = document.createElement('select');
-    selTheme.id = 'sel_theme';
-    selTheme.style.width = "100%";
-    selTheme.style.padding = "5px";
-    selTheme.style.background = "#223";
-    selTheme.style.color = "white";
-    selTheme.style.border = "none";
-
-    Object.keys(themes).forEach(k => {
-        const opt = document.createElement('option');
-        opt.value = k;
-        opt.textContent = themes[k].desc;
-        if (settings.theme === k) opt.selected = true;
-        selTheme.appendChild(opt);
-    });
-
-    selTheme.addEventListener('change', e => {
-        settings.theme = e.target.value;
-        const t = themes[settings.theme];
-        // Apply immediate changes (bg) via CSS or Canvas clear
-        document.body.style.backgroundColor = t.bg;
-    });
-
-    themeDiv.appendChild(selTheme);
-    fxGroup.appendChild(themeDiv);
-
-    dynamicSettingsDiv.appendChild(fxGroup);
-
-    // Listeners FX
-    const chkBf = fxGroup.querySelector('#chk_bf');
-    const bfOpt = fxGroup.querySelector('#bf_options');
-    chkBf.addEventListener('change', e => {
-        settings.butterfly = e.target.checked;
-        bfOpt.style.display = settings.butterfly ? 'block' : 'none';
-        initButterflyClones();
-    });
-    fxGroup.querySelector('#inp_bf_count').addEventListener('input', e => {
-        settings.butterflyCount = +e.target.value;
-        fxGroup.querySelector('#val_bf_count').textContent = settings.butterflyCount;
-        if (settings.butterfly) initButterflyClones();
-    });
-    fxGroup.querySelector('#sel_trail').addEventListener('change', e => settings.trailMode = e.target.value);
-    fxGroup.querySelector('#inp_trlen').addEventListener('input', e => {
-        const v = +e.target.value;
-        if (v >= 1000) { settings.trailLength = Infinity; fxGroup.querySelector('#val_trlen').textContent = '∞'; }
-        else {
-            settings.trailLength = v;
-            fxGroup.querySelector('#val_trlen').textContent = v;
-            if (trail.length > v) trail.splice(0, trail.length - v);
-        }
-    });
-
-
-    // 3. PHYSIQUE
-    const physGroup = document.createElement('div');
-    physGroup.className = 'setting-group';
-    physGroup.innerHTML = `<h3>Physique</h3>
-        <label>Vitesse Simu: <span id="val_spd">${settings.simSpeed}</span></label>
-        <input type="range" id="inp_spd" min="1" max="20" step="1" value="${settings.simSpeed}">
-        <label>Gravité: <span id="val_g">${settings.g}</span></label>
-        <input type="range" id="inp_g" min="0" max="2" step="0.1" value="${settings.g}">
-        <label>Résistance: <span id="val_f">${settings.resistance}</span>%</label>
-        <input type="range" id="inp_f" min="0" max="100" step="1" value="${settings.resistance}">
-    `;
-    dynamicSettingsDiv.appendChild(physGroup);
-
-    // Listeners Physique
-    physGroup.querySelector('#inp_spd').addEventListener('input', e => { settings.simSpeed = +e.target.value; physGroup.querySelector('#val_spd').textContent = settings.simSpeed; });
-    physGroup.querySelector('#inp_g').addEventListener('input', e => { settings.g = +e.target.value; physGroup.querySelector('#val_g').textContent = settings.g; });
-    physGroup.querySelector('#inp_f').addEventListener('input', e => {
-        settings.resistance = +e.target.value;
-        f_drag = 1 - (settings.resistance / 1000);
-        physGroup.querySelector('#val_f').textContent = settings.resistance;
-    });
-
-
-    // 4. BRAS (Masse/Longueur du Master)
-    const armGroup = document.createElement('div');
-    armGroup.className = 'setting-group';
-    armGroup.innerHTML = `<h3>Détails Bras (Maître)</h3>`;
-
-    // On prend le pendule 0 comme ref
-    pendulums[0].forEach((arm, i) => {
-        const div = document.createElement('div');
-        div.style.marginBottom = '10px';
-        div.style.borderBottom = '1px dashed #444';
-        div.innerHTML = `
-            <div style="font-weight:bold; color:#3498db; margin-bottom:5px;">Bras ${i + 1}</div>
-            <label>L: <span id="val_r${i}">${Math.round(arm.r)}</span> | M: <span id="val_m${i}">${Math.round(arm.m)}</span></label>
-            <input type="range" id="inp_r${i}" min="20" max="300" value="${arm.r}" style="width:45%; display:inline-block">
-            <input type="range" id="inp_m${i}" min="1" max="100" value="${arm.m}" style="width:45%; display:inline-block">
-        `;
-        armGroup.appendChild(div);
-
-        setTimeout(() => {
-            const updateLabel = () => document.getElementById(`val_r${i}`).parentNode.innerHTML = `L: <span id="val_r${i}">${Math.round(arm.r)}</span> | M: <span id="val_m${i}">${Math.round(arm.m)}</span>`;
-
-            document.getElementById(`inp_r${i}`).addEventListener('input', e => {
-                const val = +e.target.value;
-                arm.r = val;
-                // Appliquer à tous les clones pour garder la cohérence physique
-                pendulums.forEach(p => p[i].r = val);
-                updateLabel();
-            });
-            document.getElementById(`inp_m${i}`).addEventListener('input', e => {
-                const val = +e.target.value;
-                arm.m = val;
-                pendulums.forEach(p => p[i].m = val);
-                updateLabel();
-            });
-        }, 0);
-    });
-    dynamicSettingsDiv.appendChild(armGroup);
+function syncUIToSettings() {
+    // Onglet Physique
+    const inpSpd = document.getElementById('inp_spd');
+    if (inpSpd) { inpSpd.value = settings.simSpeed; document.getElementById('val_spd').textContent = settings.simSpeed; }
+    const inpG = document.getElementById('inp_g');
+    if (inpG) { inpG.value = settings.g; document.getElementById('val_g').textContent = settings.g; }
+    const inpF = document.getElementById('inp_f');
+    if (inpF) { inpF.value = settings.resistance; document.getElementById('val_f').textContent = settings.resistance; }
+    // Onglet Visuel
+    const selTheme = document.getElementById('sel_theme');
+    if (selTheme) selTheme.value = settings.theme;
+    const selTrail = document.getElementById('sel_trail');
+    if (selTrail) selTrail.value = settings.trailMode;
+    const inpTrlen = document.getElementById('inp_trlen');
+    if (inpTrlen) {
+        inpTrlen.value = settings.trailLength === Infinity ? 1000 : settings.trailLength;
+        document.getElementById('val_trlen').textContent = settings.trailLength === Infinity ? '∞' : settings.trailLength;
+    }
+    const chkBf = document.getElementById('chk_bf');
+    if (chkBf) chkBf.checked = settings.butterfly;
+    const inpBfCount = document.getElementById('inp_bf_count');
+    if (inpBfCount) { inpBfCount.value = settings.butterflyCount; document.getElementById('val_bf_count').textContent = settings.butterflyCount; }
+    const bfOpt = document.getElementById('bf_options');
+    if (bfOpt) bfOpt.classList.toggle('visible', settings.butterfly);
+    // Onglet Structure
+    const inpN = document.getElementById('inp_n');
+    if (inpN) { inpN.value = settings.nArms; document.getElementById('val_n').textContent = settings.nArms; }
+    const chkHud = document.getElementById('chk_hud');
+    if (chkHud) chkHud.checked = settings.showHUD;
 }
 
-inpN.addEventListener('input', (e) => {
-    settings.nArms = +e.target.value;
-    valN.textContent = settings.nArms;
-    initSimulation();
-});
+function rebuildArmDetails() {
+    const container = document.getElementById('arm-details');
+    if (!container) return;
+    container.innerHTML = '';
+    pendulums[0].forEach((arm, i) => {
+        const row = document.createElement('div');
+        row.className = 'arm-row';
+        row.innerHTML = `
+            <div class="arm-row-title">Bras ${i + 1}</div>
+            <div class="arm-dual">
+                <div>
+                    <label>Longueur: <span id="val_r${i}">${Math.round(arm.r)}</span></label>
+                    <input type="range" id="inp_r${i}" min="20" max="300" value="${arm.r}">
+                </div>
+                <div>
+                    <label>Masse: <span id="val_m${i}">${Math.round(arm.m)}</span></label>
+                    <input type="range" id="inp_m${i}" min="1" max="100" value="${arm.m}">
+                </div>
+            </div>
+        `;
+        container.appendChild(row);
+
+        row.querySelector(`#inp_r${i}`).addEventListener('input', e => {
+            const val = +e.target.value;
+            arm.r = val;
+            pendulums.forEach(p => p[i].r = val);
+            row.querySelector(`#val_r${i}`).textContent = Math.round(val);
+        });
+        row.querySelector(`#inp_m${i}`).addEventListener('input', e => {
+            const val = +e.target.value;
+            arm.m = val;
+            pendulums.forEach(p => p[i].m = val);
+            row.querySelector(`#val_m${i}`).textContent = Math.round(val);
+        });
+    });
+}
+
+function generateSettingsUI() {
+    // Populate theme selector
+    const selTheme = document.getElementById('sel_theme');
+    if (selTheme && selTheme.options.length === 0) {
+        Object.keys(themes).forEach(k => {
+            const opt = document.createElement('option');
+            opt.value = k;
+            opt.textContent = themes[k].desc;
+            selTheme.appendChild(opt);
+        });
+    }
+
+    // Populate scenario selector
+    const selScen = document.getElementById('sel_scenario');
+    if (selScen && selScen.options.length === 0) {
+        Object.keys(scenarios).forEach(k => {
+            const opt = document.createElement('option');
+            opt.value = k;
+            opt.textContent = scenarios[k].desc;
+            selScen.appendChild(opt);
+        });
+    }
+
+    syncUIToSettings();
+    rebuildArmDetails();
+    renderCustomPresets();
+}
+
+// --- EVENT LISTENERS UI ---
+
+function bindStaticUIEvents() {
+    // Panneau latéral
+    settingsBtn.addEventListener('click', () => sidePanel.classList.toggle('hidden'));
+    closeSidePanel.addEventListener('click', () => sidePanel.classList.add('hidden'));
+
+    // Aide
+    document.getElementById('helpOverlay').addEventListener('click', (e) => {
+        if (e.target === helpOverlay) helpOverlay.classList.add('hidden');
+    });
+
+    // Boutons barre de contrôle
+    resetTrailBtn.addEventListener('click', () => trail = []);
+    pauseBtn.addEventListener('click', () => {
+        isPaused = !isPaused;
+        pauseBtn.textContent = isPaused ? '▶ Reprendre' : '⏸ Pause';
+        pauseBtn.classList.toggle('paused', isPaused);
+    });
+    resetBtn.addEventListener('click', () => initSimulation());
+
+    // Onglets
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'));
+            tab.classList.add('active');
+            document.getElementById('tab-' + tab.dataset.tab).classList.remove('hidden');
+        });
+    });
+
+    // Structure
+    document.getElementById('inp_n').addEventListener('input', (e) => {
+        settings.nArms = +e.target.value;
+        document.getElementById('val_n').textContent = settings.nArms;
+        initSimulation();
+    });
+    document.getElementById('btn_load_scenario').addEventListener('click', () => {
+        const key = document.getElementById('sel_scenario').value;
+        const s = scenarios[key];
+        settings.nArms = s.nArms;
+        settings.g = s.g;
+        settings.resistance = s.resistance * 100;
+        f_drag = 1 - (settings.resistance / 1000);
+        initSimulation(s);
+    });
+
+    // Visuel
+    document.getElementById('sel_theme').addEventListener('change', e => {
+        settings.theme = e.target.value;
+        document.body.style.backgroundColor = themes[settings.theme].bg;
+    });
+    document.getElementById('sel_trail').addEventListener('change', e => settings.trailMode = e.target.value);
+    document.getElementById('inp_trlen').addEventListener('input', e => {
+        const v = +e.target.value;
+        settings.trailLength = v >= 1000 ? Infinity : v;
+        document.getElementById('val_trlen').textContent = settings.trailLength === Infinity ? '∞' : v;
+        if (settings.trailLength !== Infinity && trail.length > v) trail.splice(0, trail.length - v);
+    });
+    document.getElementById('chk_bf').addEventListener('change', e => {
+        settings.butterfly = e.target.checked;
+        document.getElementById('bf_options').classList.toggle('visible', settings.butterfly);
+        initButterflyClones();
+    });
+    document.getElementById('inp_bf_count').addEventListener('input', e => {
+        settings.butterflyCount = +e.target.value;
+        document.getElementById('val_bf_count').textContent = settings.butterflyCount;
+        if (settings.butterfly) initButterflyClones();
+    });
+    document.getElementById('chk_hud').addEventListener('change', e => settings.showHUD = e.target.checked);
+
+    // Physique
+    document.getElementById('inp_spd').addEventListener('input', e => {
+        settings.simSpeed = +e.target.value;
+        document.getElementById('val_spd').textContent = settings.simSpeed;
+    });
+    document.getElementById('inp_g').addEventListener('input', e => {
+        settings.g = +e.target.value;
+        document.getElementById('val_g').textContent = settings.g;
+    });
+    document.getElementById('inp_f').addEventListener('input', e => {
+        settings.resistance = +e.target.value;
+        f_drag = 1 - (settings.resistance / 1000);
+        document.getElementById('val_f').textContent = settings.resistance;
+    });
+
+    // Avancé — Attracteur
+    document.getElementById('chk_attractor').addEventListener('change', e => {
+        settings.attractorMode = e.target.checked;
+        if (settings.attractorMode) trail = [];
+    });
+
+    // Avancé — Export PNG
+    document.getElementById('btn_export_png').addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.download = `pendule_${Date.now()}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    });
+
+    // Avancé — Presets
+    document.getElementById('btn_save_preset').addEventListener('click', () => {
+        const name = document.getElementById('inp_preset_name').value.trim();
+        if (!name) return;
+        const saved = getCustomPresets();
+        saved.push({
+            name,
+            nArms: settings.nArms,
+            g: settings.g,
+            resistance: settings.resistance,
+            simSpeed: settings.simSpeed,
+            trailMode: settings.trailMode,
+            trailLength: settings.trailLength,
+            theme: settings.theme,
+            arms: pendulums[0].map(a => ({ r: a.r, m: a.m }))
+        });
+        localStorage.setItem('dp_presets', JSON.stringify(saved));
+        document.getElementById('inp_preset_name').value = '';
+        renderCustomPresets();
+    });
+}
+
+// --- Presets custom (localStorage) ---
+
+function getCustomPresets() {
+    try { return JSON.parse(localStorage.getItem('dp_presets') || '[]'); } catch { return []; }
+}
+
+function loadCustomPreset(preset) {
+    settings.nArms = preset.nArms;
+    settings.g = preset.g;
+    settings.resistance = preset.resistance;
+    settings.simSpeed = preset.simSpeed;
+    settings.trailMode = preset.trailMode;
+    settings.trailLength = preset.trailLength;
+    settings.theme = preset.theme;
+    f_drag = 1 - (settings.resistance / 1000);
+    initSimulation({ nArms: preset.nArms, m: preset.arms.map(a => a.m), r: preset.arms.map(a => a.r) });
+}
+
+function renderCustomPresets() {
+    const container = document.getElementById('custom_presets');
+    if (!container) return;
+    const presets = getCustomPresets();
+    container.innerHTML = '';
+    if (presets.length === 0) {
+        container.innerHTML = '<p class="hint">Aucun preset sauvegardé.</p>';
+        return;
+    }
+    presets.forEach((p, idx) => {
+        const div = document.createElement('div');
+        div.className = 'preset-item';
+        div.innerHTML = `<span>${p.name}</span><span>
+            <button title="Charger">▶</button>
+            <button title="Supprimer">✕</button>
+        </span>`;
+        div.querySelectorAll('button')[0].addEventListener('click', () => loadCustomPreset(p));
+        div.querySelectorAll('button')[1].addEventListener('click', () => {
+            const saved = getCustomPresets();
+            saved.splice(idx, 1);
+            localStorage.setItem('dp_presets', JSON.stringify(saved));
+            renderCustomPresets();
+        });
+        container.appendChild(div);
+    });
+}
 
 
 // --- ENGINE ---
@@ -403,16 +459,6 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-resetBtn.addEventListener('click', () => trail = []);
-pauseBtn.addEventListener('click', () => {
-    isPaused = !isPaused;
-    pauseBtn.textContent = isPaused ? 'Reprendre' : 'Pause';
-    pauseBtn.classList.toggle('paused', isPaused);
-});
-
-settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
-closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
-settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) settingsModal.classList.add('hidden'); });
 
 // --- RACCOURCIS CLAVIER ---
 const scenarioKeys = Object.keys(scenarios);
@@ -447,6 +493,16 @@ document.addEventListener('keydown', (e) => {
             break;
         case 'KeyH':
             settings.showHUD = !settings.showHUD;
+            syncUIToSettings();
+            break;
+        case 'Escape':
+            helpOverlay.classList.add('hidden');
+            sidePanel.classList.add('hidden');
+            break;
+        case 'Slash': // '?' (shift+/)
+        case 'F1':
+            e.preventDefault();
+            helpOverlay.classList.toggle('hidden');
             break;
         default:
             // Touches 1-6 pour les scénarios
@@ -458,9 +514,13 @@ document.addEventListener('keydown', (e) => {
                     settings.g = s.g;
                     settings.resistance = s.resistance * 100;
                     f_drag = 1 - (settings.resistance / 1000);
-                    if (inpN) { inpN.value = s.nArms; valN.textContent = s.nArms; }
                     initSimulation(s);
+                    syncUIToSettings();
                 }
+            }
+            // '?' avec shift
+            if (e.shiftKey && e.key === '?') {
+                helpOverlay.classList.toggle('hidden');
             }
     }
 });
@@ -803,9 +863,14 @@ function drawHUD(energy) {
 function draw() {
     const currentTheme = themes[settings.theme];
 
-    // Clear avec couleur du thème
-    ctx.fillStyle = currentTheme.bg;
-    ctx.fillRect(0, 0, width, height);
+    // Clear (ou assombrissement progressif en mode Attracteur)
+    if (settings.attractorMode) {
+        ctx.fillStyle = 'rgba(0,0,0,0.018)';
+        ctx.fillRect(0, 0, width, height);
+    } else {
+        ctx.fillStyle = currentTheme.bg;
+        ctx.fillRect(0, 0, width, height);
+    }
 
     // Étoiles pour le thème Cosmos
     if (settings.theme === 'cosmos') {
@@ -991,5 +1056,6 @@ function loop() {
 }
 
 // Start
+bindStaticUIEvents();
 initSimulation();
 loop();

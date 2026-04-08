@@ -4,42 +4,155 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulateur de Double Pendule</title>
-    <link rel="stylesheet" href="style.css?v=1">
+    <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
     <div id="container">
         <canvas id="canvas"></canvas>
+
+        <!-- Barre de contrôle compacte en haut à gauche -->
         <div id="controls">
-            <h1>Double Pendule</h1>
-            <p>Cliquez et glissez les masses pour les positionner.</p>
+            <div id="controls-title">
+                <span>Double Pendule</span>
+                <span id="controls-hint">glissez les masses · [?] aide</span>
+            </div>
             <div class="button-group">
-                <button id="pauseBtn">Pause</button>
-                <button id="resetTrail">Effacer la trace</button>
-                <button id="settingsBtn">⚙️ Paramètres</button>
+                <button id="pauseBtn">⏸ Pause</button>
+                <button id="resetBtn">↺ Reset</button>
+                <button id="resetTrail">✕ Trace</button>
+                <button id="settingsBtn">⚙ Réglages</button>
+            </div>
+        </div>
+
+        <!-- Aide clavier (overlay) -->
+        <div id="helpOverlay" class="hidden">
+            <div id="helpBox">
+                <h3>Raccourcis clavier</h3>
+                <table>
+                    <tr><td><kbd>Espace</kbd></td><td>Pause / Reprendre</td></tr>
+                    <tr><td><kbd>R</kbd></td><td>Réinitialiser</td></tr>
+                    <tr><td><kbd>C</kbd></td><td>Effacer la trace</td></tr>
+                    <tr><td><kbd>T</kbd></td><td>Changer de thème</td></tr>
+                    <tr><td><kbd>H</kbd></td><td>Afficher / Masquer HUD</td></tr>
+                    <tr><td><kbd>F</kbd></td><td>Plein écran</td></tr>
+                    <tr><td><kbd>1 – 6</kbd></td><td>Charger un scénario</td></tr>
+                    <tr><td><kbd>?</kbd></td><td>Cette aide</td></tr>
+                    <tr><td><kbd>Echap</kbd></td><td>Fermer</td></tr>
+                </table>
+                <p style="margin-top:10px; opacity:0.6; font-size:0.8rem;">Cliquer en dehors pour fermer</p>
+            </div>
+        </div>
+
+        <!-- Panneau latéral coulissant -->
+        <div id="sidePanel" class="hidden">
+            <div id="sidePanelHeader">
+                <span>⚙ Configuration</span>
+                <button id="closeSidePanel" title="Fermer (Echap)">&times;</button>
+            </div>
+
+            <!-- Onglets -->
+            <div id="tabs">
+                <button class="tab active" data-tab="structure">Structure</button>
+                <button class="tab" data-tab="visuel">Visuel</button>
+                <button class="tab" data-tab="physique">Physique</button>
+                <button class="tab" data-tab="avance">Avancé</button>
+            </div>
+
+            <div id="tabContent">
+
+                <!-- Onglet Structure -->
+                <div class="tab-pane active" id="tab-structure">
+                    <div class="setting-group">
+                        <h3>Nombre de bras</h3>
+                        <label>Bras: <span id="val_n">2</span></label>
+                        <input type="range" id="inp_n" min="1" max="5" value="2" step="1">
+                    </div>
+                    <div class="setting-group">
+                        <h3>Scénarios</h3>
+                        <select id="sel_scenario"></select>
+                        <button id="btn_load_scenario" class="btn-full">Charger le scénario</button>
+                    </div>
+                    <div class="setting-group">
+                        <h3>Détails des bras</h3>
+                        <div id="arm-details"></div>
+                    </div>
+                </div>
+
+                <!-- Onglet Visuel -->
+                <div class="tab-pane hidden" id="tab-visuel">
+                    <div class="setting-group">
+                        <h3>Thème</h3>
+                        <select id="sel_theme"></select>
+                    </div>
+                    <div class="setting-group">
+                        <h3>Trace</h3>
+                        <label>Style:</label>
+                        <select id="sel_trail">
+                            <option value="solid">Solide</option>
+                            <option value="speed">Vitesse (bleu→rouge)</option>
+                            <option value="rainbow">Arc-en-ciel (temps)</option>
+                            <option value="rainbow-cycle">Arc-en-ciel (cyclique)</option>
+                        </select>
+                        <label>Longueur: <span id="val_trlen">500</span></label>
+                        <input type="range" id="inp_trlen" min="0" max="1000" step="10" value="500">
+                    </div>
+                    <div class="setting-group">
+                        <h3>Effet Papillon 🦋</h3>
+                        <label class="toggle-label">
+                            <input type="checkbox" id="chk_bf"> Activer les clones
+                        </label>
+                        <div id="bf_options" class="hidden-opt">
+                            <label>Clones: <span id="val_bf_count">50</span></label>
+                            <input type="range" id="inp_bf_count" min="10" max="200" step="10" value="50">
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <h3>HUD</h3>
+                        <label class="toggle-label">
+                            <input type="checkbox" id="chk_hud" checked> Afficher FPS + énergie
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Onglet Physique -->
+                <div class="tab-pane hidden" id="tab-physique">
+                    <div class="setting-group">
+                        <label>Vitesse simulation: <span id="val_spd">5</span>×</label>
+                        <input type="range" id="inp_spd" min="1" max="20" step="1" value="5">
+                        <label>Gravité: <span id="val_g">0.8</span></label>
+                        <input type="range" id="inp_g" min="0" max="2" step="0.05" value="0.8">
+                        <label>Résistance air: <span id="val_f">0.1</span>%</label>
+                        <input type="range" id="inp_f" min="0" max="100" step="0.5" value="0.1">
+                    </div>
+                </div>
+
+                <!-- Onglet Avancé -->
+                <div class="tab-pane hidden" id="tab-avance">
+                    <div class="setting-group">
+                        <h3>Mode Attracteur</h3>
+                        <p class="hint">Trace infinie, fond assombri — idéal pour les captures d'art.</p>
+                        <label class="toggle-label">
+                            <input type="checkbox" id="chk_attractor"> Mode Attracteur
+                        </label>
+                    </div>
+                    <div class="setting-group">
+                        <h3>Export</h3>
+                        <button id="btn_export_png" class="btn-full">💾 Sauvegarder en PNG</button>
+                    </div>
+                    <div class="setting-group">
+                        <h3>Presets personnalisés</h3>
+                        <div style="display:flex; gap:6px; margin-bottom:8px;">
+                            <input type="text" id="inp_preset_name" placeholder="Nom du preset" style="flex:1">
+                            <button id="btn_save_preset">Sauvegarder</button>
+                        </div>
+                        <div id="custom_presets"></div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
 
-    <!-- Fenêtre de paramètres -->
-    <div id="settingsModal" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Configuration</h2>
-                <button id="closeSettings" class="close-btn">&times;</button>
-            </div>
-
-            <div class="setting-group" style="border-bottom: 1px solid #34495e; padding-bottom: 15px; margin-bottom: 15px;">
-                <h3>Structure</h3>
-                <label>Nombre de bras: <span id="val_n">2</span></label>
-                <input type="range" id="inp_n" min="1" max="5" value="2" step="1">
-            </div>
-            
-            <div id="dynamic-settings">
-                <!-- Les paramètres seront générés ici par JS -->
-            </div>
-
-        </div>
-    </div>
-    <script src="script.js?v=1"></script>
+    <script src="script.js?v=2"></script>
 </body>
 </html>
