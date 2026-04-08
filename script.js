@@ -37,7 +37,8 @@ const settings = {
     baseColor: '#3498db',
     theme: 'default',
     showHUD: true,
-    attractorMode: false
+    attractorMode: false,
+    showEnergyGraph: false
 };
 
 // Variables dérivées / Runtime
@@ -53,6 +54,10 @@ let dragHistory = []; // [{angle, time}]
 let lastFrameTime = performance.now();
 let fps = 60;
 let fpsAlpha = 0.1; // lissage exponentiel
+
+// Historique énergie pour le graphe
+const ENERGY_HISTORY_LEN = 300;
+let energyHistory = []; // [{ke, pe, total}]
 
 // STATE
 // pendulums[0] est le PRINCIPAL.
@@ -198,6 +203,8 @@ function syncUIToSettings() {
     if (inpN) { inpN.value = settings.nArms; document.getElementById('val_n').textContent = settings.nArms; }
     const chkHud = document.getElementById('chk_hud');
     if (chkHud) chkHud.checked = settings.showHUD;
+    const chkEg = document.getElementById('chk_energy_graph');
+    if (chkEg) chkEg.checked = settings.showEnergyGraph;
 }
 
 function rebuildArmDetails() {
@@ -335,6 +342,10 @@ function bindStaticUIEvents() {
         if (settings.butterfly) initButterflyClones();
     });
     document.getElementById('chk_hud').addEventListener('change', e => settings.showHUD = e.target.checked);
+    document.getElementById('chk_energy_graph').addEventListener('change', e => {
+        settings.showEnergyGraph = e.target.checked;
+        if (!settings.showEnergyGraph) energyHistory = [];
+    });
 
     // Physique
     document.getElementById('inp_spd').addEventListener('input', e => {
@@ -758,6 +769,13 @@ function update() {
             trail.shift();
         }
     }
+
+    // Historique énergie (tous les frames, max 300)
+    if (!isPaused && dragging === -1 && settings.showEnergyGraph) {
+        const e = computeEnergy();
+        energyHistory.push(e);
+        if (energyHistory.length > ENERGY_HISTORY_LEN) energyHistory.shift();
+    }
 }
 
 function computeEnergy() {
@@ -1021,9 +1039,82 @@ function draw() {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1.0;
 
-    // HUD
+    // HUD + Graphe énergie
     const energy = computeEnergy();
     drawHUD(energy);
+    if (settings.showEnergyGraph) drawEnergyGraph();
+}
+
+function drawEnergyGraph() {
+    if (energyHistory.length < 2) return;
+
+    const gw = Math.min(340, width * 0.35);
+    const gh = 90;
+    const gx = width - gw - 12;
+    const gy = height - gh - 12;
+    const pad = 6;
+
+    const isDark = themes[settings.theme].dark;
+    const bg = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)';
+    const textColor = isDark ? 'rgba(255,255,255,0.75)' : 'rgba(30,30,30,0.85)';
+
+    // Fond
+    ctx.save();
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.roundRect(gx, gy, gw, gh, 6);
+    ctx.fill();
+
+    // Trouver les min/max pour normaliser
+    let maxVal = 1;
+    for (const e of energyHistory) {
+        maxVal = Math.max(maxVal, Math.abs(e.ke), Math.abs(e.pe), Math.abs(e.total));
+    }
+
+    const plotW = gw - pad * 2;
+    const titleY = gy + pad + 10;
+    const baseY = gy + gh - pad;
+
+    // Titre
+    ctx.font = '10px monospace';
+    ctx.fillStyle = textColor;
+    ctx.fillText('Énergie', gx + pad, titleY);
+
+    // Légende
+    ctx.fillStyle = '#ff6b6b'; ctx.fillText('■KE', gx + 55, titleY);
+    ctx.fillStyle = '#74b9ff'; ctx.fillText('■PE', gx + 85, titleY);
+    ctx.fillStyle = '#55efc4'; ctx.fillText('■Tot', gx + 113, titleY);
+
+    const plotY0 = titleY + 4;
+    const plotYH = baseY - plotY0;
+
+    function drawCurve(key, color) {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        energyHistory.forEach((e, i) => {
+            const x = gx + pad + (i / (ENERGY_HISTORY_LEN - 1)) * plotW;
+            const norm = Math.max(0, Math.min(1, (e[key] - (-maxVal)) / (2 * maxVal)));
+            const y = plotY0 + plotYH * (1 - norm);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+
+    // Ligne zéro
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const zeroY = plotY0 + plotYH * 0.5;
+    ctx.moveTo(gx + pad, zeroY);
+    ctx.lineTo(gx + pad + plotW, zeroY);
+    ctx.stroke();
+
+    drawCurve('ke', '#ff6b6b');
+    drawCurve('pe', '#74b9ff');
+    drawCurve('total', '#55efc4');
+
+    ctx.restore();
 }
 
 function drawGrid() {
