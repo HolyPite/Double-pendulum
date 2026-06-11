@@ -287,6 +287,32 @@
                 </div>
             </div>
 
+            <!-- ============ PANNEAU : GRAY-SCOTT ============ -->
+            <div class="sim-panel hidden" id="panel-grayscott">
+                <div class="panel-body">
+                    <div class="setting-group">
+                        <h3>Preset de motif</h3>
+                        <select id="gs_preset"></select>
+                        <button id="gs_reseed" class="btn-full">🌱 Re-semer des graines</button>
+                    </div>
+                    <div class="setting-group">
+                        <h3>Réaction (le cœur du modèle)</h3>
+                        <p class="hint">Feed alimente U, Kill élimine V. Quelques millièmes changent tout le motif.</p>
+                        <label>Feed: <span id="gs_val_feed">0.0545</span></label>
+                        <input type="range" id="gs_feed" min="10" max="100" step="0.5" value="54.5">
+                        <label>Kill: <span id="gs_val_kill">0.0620</span></label>
+                        <input type="range" id="gs_kill" min="40" max="75" step="0.5" value="62">
+                    </div>
+                    <div class="setting-group">
+                        <h3>Simulation</h3>
+                        <label>Vitesse: <span id="gs_val_steps">6</span>×</label>
+                        <input type="range" id="gs_steps" min="1" max="15" step="1" value="6">
+                        <label>Pinceau: <span id="gs_val_brush">4</span></label>
+                        <input type="range" id="gs_brush" min="1" max="12" step="1" value="4">
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -296,6 +322,7 @@
     <script src="js/sims/sand.js?v=3"></script>
     <script src="js/sims/boids.js?v=3"></script>
     <script src="js/sims/particlelife.js?v=3"></script>
+    <script src="js/sims/grayscott.js?v=3"></script>
     <script>Engine.start('pendulum');</script>
 </body>
 </html>
