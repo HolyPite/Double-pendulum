@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Laboratoire de Simulations</title>
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
     <div id="container">
@@ -446,6 +446,12 @@
                         <input type="range" id="ant_sdist" min="3" max="20" step="1" value="8">
                     </div>
                     <div class="setting-group">
+                        <h3>Obstacles procéduraux</h3>
+                        <p class="hint">Murs à bords droits, passages traversables. Les nids et la nourriture restent dégagés.</p>
+                        <button id="ant_maze" class="btn-full">🧩 Générer un labyrinthe</button>
+                        <button id="ant_pillars" class="btn-full" style="margin-top:6px;">⭕ Piliers (rectangles + cercles)</button>
+                    </div>
+                    <div class="setting-group">
                         <h3>Scène</h3>
                         <button id="ant_demo" class="btn-full">🔄 Scène de démo</button>
                         <button id="ant_clearobs" class="btn-full" style="margin-top:6px;">Effacer les obstacles</button>
@@ -456,17 +462,17 @@
         </div>
     </div>
 
-    <script src="js/engine.js?v=4"></script>
-    <script src="js/sims/pendulum.js?v=4"></script>
-    <script src="js/sims/fluid.js?v=4"></script>
-    <script src="js/sims/sand.js?v=4"></script>
-    <script src="js/sims/boids.js?v=4"></script>
-    <script src="js/sims/particlelife.js?v=4"></script>
-    <script src="js/sims/grayscott.js?v=4"></script>
-    <script src="js/sims/gameoflife.js?v=4"></script>
-    <script src="js/sims/waves.js?v=4"></script>
-    <script src="js/sims/physarum.js?v=4"></script>
-    <script src="js/sims/ants.js?v=4"></script>
+    <script src="js/engine.js?v=5"></script>
+    <script src="js/sims/pendulum.js?v=5"></script>
+    <script src="js/sims/fluid.js?v=5"></script>
+    <script src="js/sims/sand.js?v=5"></script>
+    <script src="js/sims/boids.js?v=5"></script>
+    <script src="js/sims/particlelife.js?v=5"></script>
+    <script src="js/sims/grayscott.js?v=5"></script>
+    <script src="js/sims/gameoflife.js?v=5"></script>
+    <script src="js/sims/waves.js?v=5"></script>
+    <script src="js/sims/physarum.js?v=5"></script>
+    <script src="js/sims/ants.js?v=5"></script>
     <script>Engine.start('pendulum');</script>
 </body>
 </html>

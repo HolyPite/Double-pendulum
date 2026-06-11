@@ -99,6 +99,96 @@ function recomputeActive() {
     for (const n of nests) hasNest[n.spec] = true;
 }
 
+function isSolid(px, py) {
+    if (px < 1 || px >= gw - 1 || py < 1 || py >= gh - 1) return true;
+    return obstacle[idx(px | 0, py | 0)] === 1;
+}
+
+// --- OBSTACLES PROCÉDURAUX ---
+
+function fillRect(x0, y0, w, h) {
+    for (let y = y0; y < y0 + h; y++)
+        for (let x = x0; x < x0 + w; x++)
+            if (x >= 1 && x < gw - 1 && y >= 1 && y < gh - 1) obstacle[idx(x, y)] = 1;
+}
+
+function fillDisk(cx, cy, rad) {
+    for (let dy = -rad; dy <= rad; dy++)
+        for (let dx = -rad; dx <= rad; dx++)
+            if (dx * dx + dy * dy <= rad * rad) {
+                const x = cx + dx, y = cy + dy;
+                if (x >= 1 && x < gw - 1 && y >= 1 && y < gh - 1) obstacle[idx(x, y)] = 1;
+            }
+}
+
+// Dégage les nids et préserve la nourriture après une génération
+function protectScene() {
+    for (const n of nests) {
+        const cx = (n.px / SCALE) | 0, cy = (n.py / SCALE) | 0;
+        const rad = 8;
+        for (let dy = -rad; dy <= rad; dy++)
+            for (let dx = -rad; dx <= rad; dx++) {
+                const x = cx + dx, y = cy + dy;
+                if (x >= 0 && x < gw && y >= 0 && y < gh && dx * dx + dy * dy <= rad * rad)
+                    obstacle[idx(x, y)] = 0;
+            }
+    }
+    for (let i = 0; i < gw * gh; i++) if (food[i] > 0) obstacle[i] = 0;
+}
+
+// Labyrinthe par division récursive : murs à bords droits, un passage par mur
+function genMaze() {
+    obstacle.fill(0);
+    const TH = 2;       // épaisseur des murs (cellules)
+    const GAP = 4;      // demi-largeur des passages
+    const MINROOM = 18; // arrêt de subdivision → pièces ouvertes
+
+    function divide(x0, y0, x1, y1, depth) {
+        const w = x1 - x0, h = y1 - y0;
+        if (w < MINROOM || h < MINROOM || depth > 9) return;
+        const horizontal = (w < h) ? true : (h < w) ? false : (Math.random() < 0.5);
+        if (horizontal) {
+            const wy = y0 + 4 + ((Math.random() * (h - 8)) | 0);
+            const gx = x0 + GAP + 1 + ((Math.random() * (w - 2 * GAP - 2)) | 0);
+            for (let x = x0; x < x1; x++) {
+                if (Math.abs(x - gx) <= GAP) continue;
+                for (let t = 0; t < TH; t++) obstacle[idx(x, wy + t)] = 1;
+            }
+            divide(x0, y0, x1, wy - 1, depth + 1);
+            divide(x0, wy + TH + 1, x1, y1, depth + 1);
+        } else {
+            const wx = x0 + 4 + ((Math.random() * (w - 8)) | 0);
+            const gy = y0 + GAP + 1 + ((Math.random() * (h - 2 * GAP - 2)) | 0);
+            for (let y = y0; y < y1; y++) {
+                if (Math.abs(y - gy) <= GAP) continue;
+                for (let t = 0; t < TH; t++) obstacle[idx(wx + t, y)] = 1;
+            }
+            divide(x0, y0, wx - 1, y1, depth + 1);
+            divide(wx + TH + 1, y0, x1, y1, depth + 1);
+        }
+    }
+    divide(2, 2, gw - 2, gh - 2, 0);
+    protectScene();
+}
+
+// Champ de piliers : mélange de rectangles et de disques
+function genPillars() {
+    obstacle.fill(0);
+    const n = Math.max(10, (gw * gh / 2600) | 0);
+    for (let k = 0; k < n; k++) {
+        const cx = 2 + ((Math.random() * (gw - 4)) | 0);
+        const cy = 2 + ((Math.random() * (gh - 4)) | 0);
+        if (Math.random() < 0.5) {
+            const w = 6 + ((Math.random() * 24) | 0);
+            const h = 6 + ((Math.random() * 24) | 0);
+            fillRect(cx - (w >> 1), cy - (h >> 1), w, h);
+        } else {
+            fillDisk(cx, cy, 4 + ((Math.random() * 14) | 0));
+        }
+    }
+    protectScene();
+}
+
 // --- AGENTS ---
 
 function rebuildAnts() {
@@ -197,16 +287,22 @@ function updateAnts() {
             }
         }
 
-        // Avancer (réflexion sur murs/bords)
-        let nx = x + Math.cos(na) * speed;
-        let ny = y + Math.sin(na) * speed;
-        let blocked = false;
-        if (nx < 1 || nx >= gw - 1 || ny < 1 || ny >= gh - 1) blocked = true;
-        else if (obstacle[idx(nx | 0, ny | 0)]) blocked = true;
+        // Avancer avec glissement le long des murs (évite les blocages
+        // dans les coins/concavités : on annule la composante bloquée
+        // plutôt que de rebondir au hasard).
+        let vx = Math.cos(na) * speed;
+        let vy = Math.sin(na) * speed;
+        let nx = x + vx, ny = y + vy;
 
-        if (blocked) {
-            na = Math.random() * Math.PI * 2; // rebond aléatoire
-            nx = x; ny = y;
+        if (isSolid(nx, ny)) {
+            const blockX = isSolid(x + vx, y);
+            const blockY = isSolid(x, y + vy);
+            if (blockX && !blockY) vx = 0;        // glisse le long d'un mur vertical
+            else if (blockY && !blockX) vy = 0;   // glisse le long d'un mur horizontal
+            else { vx = -vx; vy = -vy; }          // coin fermé : demi-tour
+            nx = x + vx; ny = y + vy;
+            if (isSolid(nx, ny)) { nx = x; ny = y; vx = vy = 0; }
+            na = (vx !== 0 || vy !== 0) ? Math.atan2(vy, vx) : na + Math.PI;
         }
         ax[i] = nx; ay[i] = ny; aang[i] = na;
 
@@ -298,9 +394,12 @@ function applyTool(mx, my) {
         return;
     }
 
+    // Obstacles et gomme : pinceau carré → bords droits (pas de blocage
+    // des fourmis sur des bordures crénelées). Nourriture : pinceau rond.
+    const square = (tool === 'obstacle' || tool === 'erase');
     for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
-            if (dx * dx + dy * dy > r * r) continue;
+            if (!square && dx * dx + dy * dy > r * r) continue;
             const x = gx + dx, y = gy + dy;
             if (x < 0 || x >= gw || y < 0 || y >= gh) continue;
             const i = idx(x, y);
@@ -403,6 +502,8 @@ function bindPanel() {
         obstacle.fill(0);
     });
     document.getElementById('ant_demo').addEventListener('click', seedDemo);
+    document.getElementById('ant_maze').addEventListener('click', genMaze);
+    document.getElementById('ant_pillars').addEventListener('click', genPillars);
 }
 
 // --- RENDU ---
@@ -502,13 +603,18 @@ function draw() {
         }
     }
 
-    // Aperçu pinceau
+    // Aperçu pinceau (carré pour obstacle/gomme, rond pour la nourriture)
     if (pointer.x >= 0 && params.tool !== 'nest') {
-        ctx.beginPath();
-        ctx.arc(pointer.x, pointer.y, params.brush * SCALE, 0, Math.PI * 2);
+        const rPx = params.brush * SCALE;
         ctx.strokeStyle = 'rgba(255,255,255,0.3)';
         ctx.lineWidth = 1;
-        ctx.stroke();
+        if (params.tool === 'obstacle' || params.tool === 'erase' || pointer.erase) {
+            ctx.strokeRect(pointer.x - rPx, pointer.y - rPx, rPx * 2, rPx * 2);
+        } else {
+            ctx.beginPath();
+            ctx.arc(pointer.x, pointer.y, rPx, 0, Math.PI * 2);
+            ctx.stroke();
+        }
     }
 }
 
