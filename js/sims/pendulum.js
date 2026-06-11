@@ -1,14 +1,11 @@
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const resetTrailBtn = document.getElementById('resetTrail');
-const pauseBtn = document.getElementById('pauseBtn');
-const resetBtn = document.getElementById('resetBtn');
-const settingsBtn = document.getElementById('settingsBtn');
-const sidePanel = document.getElementById('sidePanel');
-const closeSidePanel = document.getElementById('closeSidePanel');
-const helpOverlay = document.getElementById('helpOverlay');
+// =====================================================
+// SIMULATION : Pendule à N bras (chaos)
+// =====================================================
+(() => {
+const canvas = Engine.canvas;
+const ctx = Engine.ctx;
 
-let width, height, cx, cy;
+let width = 0, height = 0, cx = 0, cy = 0;
 
 // --- AUDIO ---
 let audioCtx = null;
@@ -57,7 +54,8 @@ function stopAudio() {
 
 function updateAudio() {
     if (!settings.audioEnabled || !audioCtx || audioOscillators.length === 0) return;
-    const arms = pendulums[0];
+    // En mode multi, suivre le premier pendule visible plutôt que le master gelé
+    const arms = settings.multiMode && multiPendulums[0] ? multiPendulums[0].arms : pendulums[0];
     const t = audioCtx.currentTime;
 
     arms.forEach((arm, i) => {
@@ -87,14 +85,13 @@ const themes = {
 let stars = [];
 
 // --- CONFIGURATION ---
-// Structure globale
 const settings = {
     nArms: 2,
     g: 0.8,
     resistance: 0.1, // % (0-100) -> sera converti en f_drag
     simSpeed: 5,
     trailLength: 500, // Infinity possible
-    trailMode: 'speed', // 'solid', 'speed', 'rainbow', 'time'
+    trailMode: 'speed', // 'solid', 'speed', 'rainbow', 'rainbow-cycle'
     butterfly: false,
     butterflyCount: 50,
     baseColor: '#3498db',
@@ -109,17 +106,11 @@ const settings = {
 
 // Variables dérivées / Runtime
 let f_drag = 0.999;
-let isPaused = false;
 let dragging = -1;
 let timeStep = 0; // Pour le mode arc-en-ciel temporel
 
 // Historique drag pour calcul de vitesse angulaire au lâcher
 let dragHistory = []; // [{angle, time}]
-
-// Performance monitoring
-let lastFrameTime = performance.now();
-let fps = 60;
-let fpsAlpha = 0.1; // lissage exponentiel
 
 // Historique énergie pour le graphe
 const ENERGY_HISTORY_LEN = 300;
@@ -127,7 +118,7 @@ let energyHistory = []; // [{ke, pe, total}]
 
 // STATE
 // pendulums[0] est le PRINCIPAL.
-// pendulums[1...N] sont les CLONES (Butterfly) OU d'autres pendules indépendants.
+// pendulums[1...N] sont les CLONES (Butterfly).
 // Chaque élément est un tableau d'objets "Arm" {r, m, a, v, color...}
 let pendulums = [];
 
@@ -141,6 +132,7 @@ let multiPendulums = [];
 const MULTI_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#e91e63'];
 
 // --- PRESETS (SCÉNARIOS) ---
+// resistance en % directement (même unité que le slider)
 const scenarios = {
     "default": { nArms: 2, g: 0.8, resistance: 0.1, m: 15, r: 150, desc: "Défaut" },
     "chaos": { nArms: 2, g: 1.5, resistance: 0, m: 15, r: 150, desc: "Chaos Pur (Sans friction)" },
@@ -149,6 +141,7 @@ const scenarios = {
     "whip": { nArms: 4, g: 0.9, resistance: 0.2, m: [40, 30, 10, 2], r: [100, 100, 100, 100], desc: "Le Fouet (Masses décroissantes)" },
     "micro": { nArms: 2, g: 0.1, resistance: 0.0, m: 15, r: 80, desc: "Micro Gravité" }
 };
+const scenarioKeys = Object.keys(scenarios);
 
 // --- MATHS HELPERS (SOLVER) ---
 function solveLinearSystem(A, B) {
@@ -186,8 +179,6 @@ function initSimulation(customParams = null) {
     pendulums = [];
     trail = [];
 
-    // Si des params personnalisés (masses tableaux, etc.)
-    // On construit le pendule "Master"
     let masterArms = [];
     for (let i = 0; i < settings.nArms; i++) {
         // Gestion des cas où m ou r sont des tableaux (scénario Whip)
@@ -199,7 +190,6 @@ function initSimulation(customParams = null) {
             if (Array.isArray(customParams.r)) rVal = customParams.r[i] || 100;
             else if (customParams.r) rVal = customParams.r;
         } else {
-            // Valeurs par défaut basées sur la longueur et i
             rVal = 150 - (i * 10);
         }
 
@@ -218,7 +208,10 @@ function initSimulation(customParams = null) {
         initButterflyClones();
     }
 
-    // Refresh UI si nécessaire (valeurs masses/longueurs peuvent avoir changé)
+    // Le nombre de bras a pu changer → reconstruire les pendules multi
+    if (settings.multiMode) initMultiPendulums();
+
+    // Refresh UI (valeurs masses/longueurs peuvent avoir changé)
     generateSettingsUI();
 
     // Redémarrer l'audio si actif (nombre de bras peut avoir changé)
@@ -233,15 +226,11 @@ function initButterflyClones() {
 
     const master = pendulums[0];
     for (let k = 0; k < settings.butterflyCount; k++) {
-        // Clone profond
-        let clone = master.map(arm => ({ ...arm })); // Copie propriétés
-
+        let clone = master.map(arm => ({ ...arm }));
         // Perturbation infime
-        // On perturbe seulement le premier angle ou tous ? Tous c'est plus drôle.
         clone.forEach(arm => {
             arm.a += (Math.random() - 0.5) * 0.001;
         });
-
         pendulums.push(clone);
     }
 }
@@ -253,7 +242,6 @@ function initMultiPendulums() {
     if (!settings.multiMode) return;
 
     const count = settings.multiCount;
-    // Disposition des pivots en grille ou arc selon le nombre
     const margin = 120;
     const usableW = width - margin * 2;
     const cols = Math.min(count, 4);
@@ -285,9 +273,8 @@ function initMultiPendulums() {
 }
 
 function updateMultiPendulums() {
-    if (!settings.multiMode || isPaused) return;
+    if (!settings.multiMode || Engine.paused) return;
     for (const mp of multiPendulums) {
-        // RK4 pour ce pendule avec cx/cy remplacés par pivotX/pivotY
         updatePendulumArms(mp.arms, settings.simSpeed);
 
         // Trail
@@ -315,7 +302,7 @@ function getPositionsFromPivot(armsList, pivX, pivY) {
     return positions;
 }
 
-// Version de updatePendulumRK4 qui prend un tableau de bras directement (sans index global)
+// Version de updatePendulumRK4 qui prend un tableau de bras directement
 function updatePendulumArms(arms, steps) {
     const n = arms.length;
     const dt = 0.2;
@@ -343,19 +330,17 @@ function drawMultiPendulums() {
     for (const mp of multiPendulums) {
         const pos = getPositionsFromPivot(mp.arms, mp.pivotX, mp.pivotY);
 
-        // Trace
+        // Trace (couleur du pendule, alpha croissant vers la tête)
         if (mp.trail.length > 1) {
+            ctx.strokeStyle = mp.color;
+            ctx.lineWidth = 1.5;
             for (let i = 1; i < mp.trail.length; i++) {
                 const p1 = mp.trail[i - 1];
                 const p2 = mp.trail[i];
-                const alpha = i / mp.trail.length;
+                ctx.globalAlpha = (i / mp.trail.length) * 0.7;
                 ctx.beginPath();
                 ctx.moveTo(p1.x, p1.y);
                 ctx.lineTo(p2.x, p2.y);
-                ctx.strokeStyle = mp.color.replace(')', `, ${alpha})`).replace('rgb', 'rgba').replace('#', 'rgba(').replace(/rgba\(([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2}), /, (_, r, g, b) => `rgba(${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)}, `);
-                // Simplifié avec globalAlpha
-                ctx.globalAlpha = alpha * 0.7;
-                ctx.lineWidth = 1.5;
                 ctx.stroke();
             }
             ctx.globalAlpha = 1;
@@ -396,7 +381,7 @@ function drawMultiPendulums() {
     }
 }
 
-// --- UI GENERATION ---
+// --- UI ---
 
 function syncUIToSettings() {
     // Onglet Physique
@@ -496,34 +481,34 @@ function generateSettingsUI() {
     renderCustomPresets();
 }
 
-// --- EVENT LISTENERS UI ---
+function applyTheme(themeKey) {
+    settings.theme = themeKey;
+    document.body.style.backgroundColor = themes[themeKey].bg;
+    const sel = document.getElementById('sel_theme');
+    if (sel) sel.value = themeKey;
+}
 
-function bindStaticUIEvents() {
-    // Panneau latéral
-    settingsBtn.addEventListener('click', () => sidePanel.classList.toggle('hidden'));
-    closeSidePanel.addEventListener('click', () => sidePanel.classList.add('hidden'));
+function applyScenario(key) {
+    const s = scenarios[key];
+    if (!s) return;
+    settings.nArms = s.nArms;
+    settings.g = s.g;
+    settings.resistance = s.resistance;
+    f_drag = 1 - (settings.resistance / 1000);
+    initSimulation(s);
+    syncUIToSettings();
+}
 
-    // Aide
-    document.getElementById('helpOverlay').addEventListener('click', (e) => {
-        if (e.target === helpOverlay) helpOverlay.classList.add('hidden');
-    });
+function bindPanel() {
+    const panel = document.getElementById('panel-pendulum');
 
-    // Boutons barre de contrôle
-    resetTrailBtn.addEventListener('click', () => trail = []);
-    pauseBtn.addEventListener('click', () => {
-        isPaused = !isPaused;
-        pauseBtn.textContent = isPaused ? '▶ Reprendre' : '⏸ Pause';
-        pauseBtn.classList.toggle('paused', isPaused);
-    });
-    resetBtn.addEventListener('click', () => initSimulation());
-
-    // Onglets
-    document.querySelectorAll('.tab').forEach(tab => {
+    // Onglets internes du panneau
+    panel.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', () => {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'));
+            panel.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            panel.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'));
             tab.classList.add('active');
-            document.getElementById('tab-' + tab.dataset.tab).classList.remove('hidden');
+            panel.querySelector('#tab-' + tab.dataset.tab).classList.remove('hidden');
         });
     });
 
@@ -534,20 +519,11 @@ function bindStaticUIEvents() {
         initSimulation();
     });
     document.getElementById('btn_load_scenario').addEventListener('click', () => {
-        const key = document.getElementById('sel_scenario').value;
-        const s = scenarios[key];
-        settings.nArms = s.nArms;
-        settings.g = s.g;
-        settings.resistance = s.resistance * 100;
-        f_drag = 1 - (settings.resistance / 1000);
-        initSimulation(s);
+        applyScenario(document.getElementById('sel_scenario').value);
     });
 
     // Visuel
-    document.getElementById('sel_theme').addEventListener('change', e => {
-        settings.theme = e.target.value;
-        document.body.style.backgroundColor = themes[settings.theme].bg;
-    });
+    document.getElementById('sel_theme').addEventListener('change', e => applyTheme(e.target.value));
     document.getElementById('sel_trail').addEventListener('change', e => settings.trailMode = e.target.value);
     document.getElementById('inp_trlen').addEventListener('input', e => {
         const v = +e.target.value;
@@ -586,8 +562,7 @@ function bindStaticUIEvents() {
         document.getElementById('val_f').textContent = settings.resistance;
     });
 
-    // Avancé — Attracteur
-    // Audio
+    // Avancé — Audio
     document.getElementById('chk_audio').addEventListener('change', e => {
         settings.audioEnabled = e.target.checked;
         if (settings.audioEnabled) {
@@ -604,7 +579,7 @@ function bindStaticUIEvents() {
         if (masterGain) masterGain.gain.setTargetAtTime(vol * 0.3, audioCtx.currentTime, 0.05);
     });
 
-    // Multi-pendules
+    // Avancé — Multi-pendules
     document.getElementById('chk_multi').addEventListener('change', e => {
         settings.multiMode = e.target.checked;
         document.getElementById('multi_options').classList.toggle('visible', settings.multiMode);
@@ -617,6 +592,7 @@ function bindStaticUIEvents() {
         if (settings.multiMode) initMultiPendulums();
     });
 
+    // Avancé — Attracteur
     document.getElementById('chk_attractor').addEventListener('change', e => {
         settings.attractorMode = e.target.checked;
         if (settings.attractorMode) trail = [];
@@ -665,8 +641,8 @@ function loadCustomPreset(preset) {
     settings.simSpeed = preset.simSpeed;
     settings.trailMode = preset.trailMode;
     settings.trailLength = preset.trailLength;
-    settings.theme = preset.theme;
     f_drag = 1 - (settings.resistance / 1000);
+    applyTheme(preset.theme);
     initSimulation({ nArms: preset.nArms, m: preset.arms.map(a => a.m), r: preset.arms.map(a => a.r) });
 }
 
@@ -697,8 +673,7 @@ function renderCustomPresets() {
     });
 }
 
-
-// --- ENGINE ---
+// --- DÉCOR ---
 
 function generateStars() {
     stars = [];
@@ -711,108 +686,6 @@ function generateStars() {
         });
     }
 }
-
-function resize() {
-    width = window.innerWidth;
-    height = window.innerHeight;
-    canvas.width = width;
-    canvas.height = height;
-    cx = width / 2;
-    cy = height / 3;
-    generateStars();
-    if (settings.multiMode) initMultiPendulums();
-}
-window.addEventListener('resize', resize);
-resize();
-
-
-// --- RACCOURCIS CLAVIER ---
-const scenarioKeys = Object.keys(scenarios);
-document.addEventListener('keydown', (e) => {
-    // Ne pas intercepter si un input/select a le focus
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-
-    switch (e.code) {
-        case 'Space':
-            e.preventDefault();
-            pauseBtn.click();
-            break;
-        case 'KeyR':
-            initSimulation();
-            break;
-        case 'KeyC':
-            trail = [];
-            break;
-        case 'KeyT': {
-            const themeList = Object.keys(themes);
-            const idx = themeList.indexOf(settings.theme);
-            settings.theme = themeList[(idx + 1) % themeList.length];
-            document.body.style.backgroundColor = themes[settings.theme].bg;
-            // Mettre à jour le select si le modal est ouvert
-            const sel = document.getElementById('sel_theme');
-            if (sel) sel.value = settings.theme;
-            break;
-        }
-        case 'KeyF':
-            if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
-            else document.exitFullscreen();
-            break;
-        case 'KeyH':
-            settings.showHUD = !settings.showHUD;
-            syncUIToSettings();
-            break;
-        case 'Escape':
-            helpOverlay.classList.add('hidden');
-            sidePanel.classList.add('hidden');
-            break;
-        case 'Slash': // '?' (shift+/)
-        case 'F1':
-            e.preventDefault();
-            helpOverlay.classList.toggle('hidden');
-            break;
-        default:
-            // Touches 1-6 pour les scénarios
-            if (e.key >= '1' && e.key <= '6') {
-                const idx = parseInt(e.key) - 1;
-                if (idx < scenarioKeys.length) {
-                    const s = scenarios[scenarioKeys[idx]];
-                    settings.nArms = s.nArms;
-                    settings.g = s.g;
-                    settings.resistance = s.resistance * 100;
-                    f_drag = 1 - (settings.resistance / 1000);
-                    initSimulation(s);
-                    syncUIToSettings();
-                }
-            }
-            // '?' avec shift
-            if (e.shiftKey && e.key === '?') {
-                helpOverlay.classList.toggle('hidden');
-            }
-    }
-});
-
-// --- SUPPORT TACTILE ---
-function getTouchPosition(touch) {
-    return { clientX: touch.clientX, clientY: touch.clientY };
-}
-
-canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    const t = e.touches[0];
-    canvas.dispatchEvent(new MouseEvent('mousedown', getTouchPosition(t)));
-}, { passive: false });
-
-window.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    const t = e.touches[0];
-    window.dispatchEvent(new MouseEvent('mousemove', getTouchPosition(t)));
-}, { passive: false });
-
-window.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    window.dispatchEvent(new MouseEvent('mouseup', {}));
-}, { passive: false });
-
 
 // Calcul Positions (pour un pendule donné)
 function getPendulumPositions(armsList) {
@@ -827,103 +700,13 @@ function getPendulumPositions(armsList) {
     return positions;
 }
 
-// --- INTERACTION ---
-// On interagit SEULEMENT avec le pendule 0
-canvas.addEventListener('mousedown', (e) => {
-    const positions = getPendulumPositions(pendulums[0]);
-    const mx = e.clientX;
-    const my = e.clientY;
-
-    for (let i = settings.nArms - 1; i >= 0; i--) {
-        const dist = Math.hypot(mx - positions[i].x, my - positions[i].y);
-        const radius = Math.sqrt(pendulums[0][i].m) * 3 + 15;
-        if (dist < radius) {
-            dragging = i;
-            return;
-        }
-    }
-});
-
-window.addEventListener('mouseup', () => {
-    if (dragging !== -1) {
-        // Calculer vitesse angulaire à partir de l'historique de drag
-        let angularVel = 0;
-        if (dragHistory.length >= 2) {
-            const oldest = dragHistory[0];
-            const newest = dragHistory[dragHistory.length - 1];
-            const dt = (newest.time - oldest.time) / 1000; // en secondes
-            if (dt > 0.001) {
-                // Différence d'angle avec gestion du saut ±π
-                let dAngle = newest.angle - oldest.angle;
-                while (dAngle > Math.PI) dAngle -= 2 * Math.PI;
-                while (dAngle < -Math.PI) dAngle += 2 * Math.PI;
-                // Convertir en unités de simulation (simSpeed ≈ facteur temps)
-                angularVel = (dAngle / dt) * 0.016; // 0.016 ≈ 60fps frame time
-            }
-        }
-        dragHistory = [];
-
-        // Appliquer vitesse au bras dragué, reset les autres
-        pendulums[0].forEach((a, idx) => {
-            a.v = idx === dragging ? Math.max(-15, Math.min(15, angularVel)) : 0;
-        });
-
-        // Si Butterfly : Reset des clones sur le master + bruit
-        if (settings.butterfly) {
-            initButterflyClones();
-            // On s'assure que les clones prennent la nouvelle position
-            for (let k = 1; k < pendulums.length; k++) {
-                pendulums[k].forEach((arm, idx) => {
-                    arm.a = pendulums[0][idx].a + (Math.random() - 0.5) * 0.001;
-                    arm.v = 0;
-                });
-            }
-        }
-        dragging = -1;
-    }
-});
-
-window.addEventListener('mousemove', (e) => {
-    if (dragging === -1) return;
-    const mx = e.clientX;
-    const my = e.clientY;
-
-    // Drag logique simple (Geometrique) sur le Master
-    let prevX = cx, prevY = cy;
-    if (dragging > 0) {
-        const pos = getPendulumPositions(pendulums[0]);
-        prevX = pos[dragging - 1].x;
-        prevY = pos[dragging - 1].y;
-    }
-    const dx = mx - prevX;
-    const dy = my - prevY;
-    const newAngle = Math.atan2(dx, dy);
-    pendulums[0][dragging].a = newAngle;
-
-    // Historique pour calcul vitesse au lâcher
-    dragHistory.push({ angle: newAngle, time: performance.now() });
-    if (dragHistory.length > 8) dragHistory.shift();
-
-    // Synchroniser les clones sur le master pendant le drag
-    for (let k = 1; k < pendulums.length; k++) {
-        pendulums[k][dragging].a = newAngle;
-    }
-
-    // Effacer trace
-    trail = [];
-});
-
-
 // --- PHYSICS CORE (RK4) ---
 
 function computeDerivatives(armState, pendulumInstance) {
-    // armState = [{a, v}, {a, v}...]
     const n = armState.length;
     const M = Array(n).fill(0).map(() => Array(n).fill(0));
     const F = Array(n).fill(0);
 
-    // On utilise les masses et longueurs de l'instance (constantes)
-    // Mais les angles de armState
     for (let i = 0; i < n; i++) {
         for (let j = 0; j < n; j++) {
             let massSum = 0;
@@ -948,107 +731,20 @@ function computeDerivatives(armState, pendulumInstance) {
 }
 
 function updatePendulumRK4(pIndex, simSteps) {
-    const arms = pendulums[pIndex];
-    const n = arms.length;
-    const dt = 0.2;
     const steps = simSteps !== undefined ? simSteps : settings.simSpeed;
-
-    for (let step = 0; step < steps; step++) {
-        const state0 = arms.map(a => ({ a: a.a, v: a.v }));
-
-        const k1 = computeDerivatives(state0, arms);
-
-        const state1 = state0.map((s, i) => ({ a: s.a + k1[i].da * dt * 0.5, v: s.v + k1[i].dv * dt * 0.5 }));
-        const k2 = computeDerivatives(state1, arms);
-
-        const state2 = state0.map((s, i) => ({ a: s.a + k2[i].da * dt * 0.5, v: s.v + k2[i].dv * dt * 0.5 }));
-        const k3 = computeDerivatives(state2, arms);
-
-        const state3 = state0.map((s, i) => ({ a: s.a + k3[i].da * dt, v: s.v + k3[i].dv * dt }));
-        const k4 = computeDerivatives(state3, arms);
-
-        for (let i = 0; i < n; i++) {
-            const da = (k1[i].da + 2 * k2[i].da + 2 * k3[i].da + k4[i].da) / 6;
-            const dv = (k1[i].dv + 2 * k2[i].dv + 2 * k3[i].dv + k4[i].dv) / 6;
-            arms[i].a += da * dt;
-            arms[i].v += dv * dt;
-            arms[i].v *= f_drag;
-        }
-    }
+    updatePendulumArms(pendulums[pIndex], steps);
 }
 
-
-function update() {
-    // Mesure FPS (lissé)
-    const now = performance.now();
-    const dt_real = now - lastFrameTime;
-    lastFrameTime = now;
-    fps = fps * (1 - fpsAlpha) + (1000 / dt_real) * fpsAlpha;
-
-    if (dragging === -1 && !isPaused) {
-        timeStep++;
-
-        // Update Master
-        updatePendulumRK4(0);
-
-        // Update Clones (Butterfly) — vitesse réduite selon les FPS et le nombre de clones
-        if (settings.butterfly) {
-            // Cap simSpeed pour les clones : max 3x, moins si on a beaucoup de clones ou FPS < 40
-            const maxCloneSpeed = fps < 40 ? 1 : (fps < 55 ? 2 : Math.min(settings.simSpeed, 3));
-            for (let k = 1; k < pendulums.length; k++) {
-                updatePendulumRK4(k, maxCloneSpeed);
-            }
-        }
-    }
-
-    // Gestion de la trace (Uniquement Master)
-    if (!isPaused || dragging !== -1) {
-        const pos = getPendulumPositions(pendulums[0]);
-        const tip = pos[pos.length - 1];
-
-        // Calcul vitesse du bout (approx)
-        let speed = 0;
-        if (trail.length > 0) {
-            const last = trail[trail.length - 1];
-            speed = Math.hypot(tip.x - last.x, tip.y - last.y);
-        }
-
-        trail.push({
-            x: tip.x,
-            y: tip.y,
-            v: speed,
-            t: timeStep
-        });
-
-        if (settings.trailLength !== Infinity && trail.length > settings.trailLength) {
-            trail.shift();
-        }
-    }
-
-    // Historique énergie (tous les frames, max 300)
-    if (!isPaused && dragging === -1 && settings.showEnergyGraph) {
-        const e = computeEnergy();
-        energyHistory.push(e);
-        if (energyHistory.length > ENERGY_HISTORY_LEN) energyHistory.shift();
-    }
-
-    // Multi-pendules
-    updateMultiPendulums();
-
-    // Audio
-    updateAudio();
-}
+// --- ÉNERGIE ---
 
 function computeEnergy() {
     const arms = pendulums[0];
     const n = arms.length;
     let ke = 0, pe = 0;
 
-    // Positions cartésiennes et vitesses de chaque masse
     let px = 0, py = 0; // relatif au pivot (y positif = bas)
     for (let i = 0; i < n; i++) {
         const a = arms[i];
-        // Déplacement bras i
         const dx = a.r * Math.sin(a.a);
         const dy = a.r * Math.cos(a.a);
         px += dx; py += dy;
@@ -1061,11 +757,12 @@ function computeEnergy() {
         }
         ke += 0.5 * a.m * (vxi * vxi + vyi * vyi);
         // Énergie potentielle : hauteur = -py (car y canvas vers le bas)
-        // Référence au pivot → pe = m * g * (-py) mais en unités canvas
         pe += a.m * settings.g * (-py);
     }
     return { ke, pe, total: ke + pe };
 }
+
+// --- RENDU ---
 
 function drawMass(x, y, radius, color, theme) {
     ctx.beginPath();
@@ -1084,7 +781,6 @@ function drawMass(x, y, radius, color, theme) {
         ctx.fill();
         ctx.shadowBlur = 0;
     } else if (theme === 'cosmos') {
-        // Sphère 3D avec gradient radial
         const grad = ctx.createRadialGradient(x - radius * 0.35, y - radius * 0.35, radius * 0.05, x, y, radius);
         grad.addColorStop(0, 'rgba(255,255,255,0.9)');
         grad.addColorStop(0.4, color);
@@ -1098,7 +794,6 @@ function drawMass(x, y, radius, color, theme) {
         ctx.fillStyle = '#1a1a1a';
         ctx.fill();
     } else {
-        // Gradient léger pour le thème défaut
         const grad = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, radius * 0.05, x, y, radius);
         grad.addColorStop(0, 'rgba(255,255,255,0.5)');
         grad.addColorStop(0.5, color);
@@ -1108,6 +803,7 @@ function drawMass(x, y, radius, color, theme) {
     }
 }
 
+// energy peut être null (mode multi) → FPS seul
 function drawHUD(energy) {
     if (!settings.showHUD) return;
     const t = themes[settings.theme];
@@ -1118,25 +814,171 @@ function drawHUD(energy) {
     const x = width - 175;
     const y = 18;
     const lh = 18;
+    const lines = energy ? 5 : 2;
 
     ctx.save();
     ctx.fillStyle = bgColor;
     ctx.beginPath();
-    ctx.roundRect(x - 8, y - 14, 168, 88, 6);
+    ctx.roundRect(x - 8, y - 14, 168, lines * lh - 2, 6);
     ctx.fill();
 
     ctx.font = '12px monospace';
     ctx.fillStyle = textColor;
-    ctx.fillText(`FPS: ${Math.round(fps)}`, x, y);
-    ctx.fillStyle = isDark ? '#ff6b6b' : '#cc3333';
-    ctx.fillText(`KE: ${energy.ke.toFixed(0)}`, x, y + lh);
-    ctx.fillStyle = isDark ? '#74b9ff' : '#1a5ccc';
-    ctx.fillText(`PE: ${energy.pe.toFixed(0)}`, x, y + lh * 2);
-    ctx.fillStyle = isDark ? '#55efc4' : '#006644';
-    ctx.fillText(`Total: ${energy.total.toFixed(0)}`, x, y + lh * 3);
+    ctx.fillText(`FPS: ${Math.round(Engine.fps)}`, x, y);
+    if (energy) {
+        ctx.fillStyle = isDark ? '#ff6b6b' : '#cc3333';
+        ctx.fillText(`KE: ${energy.ke.toFixed(0)}`, x, y + lh);
+        ctx.fillStyle = isDark ? '#74b9ff' : '#1a5ccc';
+        ctx.fillText(`PE: ${energy.pe.toFixed(0)}`, x, y + lh * 2);
+        ctx.fillStyle = isDark ? '#55efc4' : '#006644';
+        ctx.fillText(`Total: ${energy.total.toFixed(0)}`, x, y + lh * 3);
+    }
     ctx.fillStyle = textColor;
-    ctx.fillText(`[H] masquer HUD`, x, y + lh * 4);
+    ctx.fillText(`[H] masquer HUD`, x, y + lh * (lines - 1));
     ctx.restore();
+}
+
+function drawEnergyGraph() {
+    if (energyHistory.length < 2) return;
+
+    const gw = Math.min(340, width * 0.35);
+    const gh = 90;
+    const gx = width - gw - 12;
+    const gy = height - gh - 12;
+    const pad = 6;
+
+    const isDark = themes[settings.theme].dark;
+    const bg = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)';
+    const textColor = isDark ? 'rgba(255,255,255,0.75)' : 'rgba(30,30,30,0.85)';
+
+    ctx.save();
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.roundRect(gx, gy, gw, gh, 6);
+    ctx.fill();
+
+    let maxVal = 1;
+    for (const e of energyHistory) {
+        maxVal = Math.max(maxVal, Math.abs(e.ke), Math.abs(e.pe), Math.abs(e.total));
+    }
+
+    const plotW = gw - pad * 2;
+    const titleY = gy + pad + 10;
+    const baseY = gy + gh - pad;
+
+    ctx.font = '10px monospace';
+    ctx.fillStyle = textColor;
+    ctx.fillText('Énergie', gx + pad, titleY);
+
+    ctx.fillStyle = '#ff6b6b'; ctx.fillText('■KE', gx + 55, titleY);
+    ctx.fillStyle = '#74b9ff'; ctx.fillText('■PE', gx + 85, titleY);
+    ctx.fillStyle = '#55efc4'; ctx.fillText('■Tot', gx + 113, titleY);
+
+    const plotY0 = titleY + 4;
+    const plotYH = baseY - plotY0;
+
+    function drawCurve(key, color) {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        energyHistory.forEach((e, i) => {
+            const x = gx + pad + (i / (ENERGY_HISTORY_LEN - 1)) * plotW;
+            const norm = Math.max(0, Math.min(1, (e[key] - (-maxVal)) / (2 * maxVal)));
+            const y = plotY0 + plotYH * (1 - norm);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+
+    // Ligne zéro
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const zeroY = plotY0 + plotYH * 0.5;
+    ctx.moveTo(gx + pad, zeroY);
+    ctx.lineTo(gx + pad + plotW, zeroY);
+    ctx.stroke();
+
+    drawCurve('ke', '#ff6b6b');
+    drawCurve('pe', '#74b9ff');
+    drawCurve('total', '#55efc4');
+
+    ctx.restore();
+}
+
+function drawGrid() {
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.05)';
+    const step = 50;
+
+    ctx.beginPath();
+    for (let x = 0; x < width; x += step) {
+        ctx.moveTo(x, 0); ctx.lineTo(x, height);
+    }
+    for (let y = 0; y < height; y += step) {
+        ctx.moveTo(0, y); ctx.lineTo(width, y);
+    }
+    ctx.stroke();
+
+    // Axes centraux
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
+    ctx.beginPath();
+    ctx.moveTo(cx, 0); ctx.lineTo(cx, height);
+    ctx.moveTo(0, cy); ctx.lineTo(width, cy);
+    ctx.stroke();
+}
+
+// =====================================================
+// HOOKS DE LA SIMULATION
+// =====================================================
+
+function update() {
+    if (dragging === -1 && !Engine.paused) {
+        timeStep++;
+
+        if (!settings.multiMode) {
+            // Update Master
+            updatePendulumRK4(0);
+
+            // Update Clones (Butterfly) — vitesse réduite selon les FPS et le nombre de clones
+            if (settings.butterfly) {
+                const fps = Engine.fps;
+                const maxCloneSpeed = fps < 40 ? 1 : (fps < 55 ? 2 : Math.min(settings.simSpeed, 3));
+                for (let k = 1; k < pendulums.length; k++) {
+                    updatePendulumRK4(k, maxCloneSpeed);
+                }
+            }
+        }
+    }
+
+    // Gestion de la trace (Uniquement Master, hors mode multi)
+    if (!settings.multiMode && (!Engine.paused || dragging !== -1)) {
+        const pos = getPendulumPositions(pendulums[0]);
+        const tip = pos[pos.length - 1];
+
+        let speed = 0;
+        if (trail.length > 0) {
+            const last = trail[trail.length - 1];
+            speed = Math.hypot(tip.x - last.x, tip.y - last.y);
+        }
+
+        trail.push({ x: tip.x, y: tip.y, v: speed, t: timeStep });
+
+        if (settings.trailLength !== Infinity && trail.length > settings.trailLength) {
+            trail.shift();
+        }
+    }
+
+    // Historique énergie
+    if (!Engine.paused && dragging === -1 && settings.showEnergyGraph && !settings.multiMode) {
+        const e = computeEnergy();
+        energyHistory.push(e);
+        if (energyHistory.length > ENERGY_HISTORY_LEN) energyHistory.shift();
+    }
+
+    updateMultiPendulums();
+    updateAudio();
 }
 
 function draw() {
@@ -1171,6 +1013,14 @@ function draw() {
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';
     ctx.globalCompositeOperation = currentTheme.composite;
+
+    // Mode multi : rendu dédié + HUD réduit, pas de master
+    if (settings.multiMode) {
+        drawMultiPendulums();
+        ctx.globalCompositeOperation = 'source-over';
+        drawHUD(null);
+        return;
+    }
 
     // 1. DESSINER LA TRACE (MASTER)
     if (trail.length > 1) {
@@ -1245,14 +1095,10 @@ function draw() {
         ctx.restore();
     }
 
-    // Multi-pendules indépendants
-    drawMultiPendulums();
-
     // Reset composite avant dessin pendule
     ctx.globalCompositeOperation = currentTheme.composite;
 
-    // 3. DESSINER LE MASTER (masqué en mode multi)
-    if (settings.multiMode) return; // multi mode gère son propre rendu
+    // 3. DESSINER LE MASTER
     const posMaster = getPendulumPositions(pendulums[0]);
     let px = cx, py = cy;
 
@@ -1310,108 +1156,141 @@ function draw() {
     if (settings.showEnergyGraph) drawEnergyGraph();
 }
 
-function drawEnergyGraph() {
-    if (energyHistory.length < 2) return;
+// --- INTERACTION (master uniquement, hors mode multi) ---
 
-    const gw = Math.min(340, width * 0.35);
-    const gh = 90;
-    const gx = width - gw - 12;
-    const gy = height - gh - 12;
-    const pad = 6;
+function pointerDown(mx, my) {
+    if (settings.multiMode) return;
+    const positions = getPendulumPositions(pendulums[0]);
 
-    const isDark = themes[settings.theme].dark;
-    const bg = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)';
-    const textColor = isDark ? 'rgba(255,255,255,0.75)' : 'rgba(30,30,30,0.85)';
-
-    // Fond
-    ctx.save();
-    ctx.fillStyle = bg;
-    ctx.beginPath();
-    ctx.roundRect(gx, gy, gw, gh, 6);
-    ctx.fill();
-
-    // Trouver les min/max pour normaliser
-    let maxVal = 1;
-    for (const e of energyHistory) {
-        maxVal = Math.max(maxVal, Math.abs(e.ke), Math.abs(e.pe), Math.abs(e.total));
+    for (let i = settings.nArms - 1; i >= 0; i--) {
+        const dist = Math.hypot(mx - positions[i].x, my - positions[i].y);
+        const radius = Math.sqrt(pendulums[0][i].m) * 3 + 15;
+        if (dist < radius) {
+            dragging = i;
+            return;
+        }
     }
-
-    const plotW = gw - pad * 2;
-    const titleY = gy + pad + 10;
-    const baseY = gy + gh - pad;
-
-    // Titre
-    ctx.font = '10px monospace';
-    ctx.fillStyle = textColor;
-    ctx.fillText('Énergie', gx + pad, titleY);
-
-    // Légende
-    ctx.fillStyle = '#ff6b6b'; ctx.fillText('■KE', gx + 55, titleY);
-    ctx.fillStyle = '#74b9ff'; ctx.fillText('■PE', gx + 85, titleY);
-    ctx.fillStyle = '#55efc4'; ctx.fillText('■Tot', gx + 113, titleY);
-
-    const plotY0 = titleY + 4;
-    const plotYH = baseY - plotY0;
-
-    function drawCurve(key, color) {
-        ctx.beginPath();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
-        energyHistory.forEach((e, i) => {
-            const x = gx + pad + (i / (ENERGY_HISTORY_LEN - 1)) * plotW;
-            const norm = Math.max(0, Math.min(1, (e[key] - (-maxVal)) / (2 * maxVal)));
-            const y = plotY0 + plotYH * (1 - norm);
-            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-    }
-
-    // Ligne zéro
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    const zeroY = plotY0 + plotYH * 0.5;
-    ctx.moveTo(gx + pad, zeroY);
-    ctx.lineTo(gx + pad + plotW, zeroY);
-    ctx.stroke();
-
-    drawCurve('ke', '#ff6b6b');
-    drawCurve('pe', '#74b9ff');
-    drawCurve('total', '#55efc4');
-
-    ctx.restore();
 }
 
-function drawGrid() {
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(0, 255, 255, 0.05)';
-    const step = 50;
+function pointerMove(mx, my) {
+    if (dragging === -1) return;
 
-    ctx.beginPath();
-    for (let x = 0; x < width; x += step) {
-        ctx.moveTo(x, 0); ctx.lineTo(x, height);
+    let prevX = cx, prevY = cy;
+    if (dragging > 0) {
+        const pos = getPendulumPositions(pendulums[0]);
+        prevX = pos[dragging - 1].x;
+        prevY = pos[dragging - 1].y;
     }
-    for (let y = 0; y < height; y += step) {
-        ctx.moveTo(0, y); ctx.lineTo(width, y);
-    }
-    ctx.stroke();
+    const dx = mx - prevX;
+    const dy = my - prevY;
+    const newAngle = Math.atan2(dx, dy);
+    pendulums[0][dragging].a = newAngle;
 
-    // Axes centraux
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
-    ctx.beginPath();
-    ctx.moveTo(cx, 0); ctx.lineTo(cx, height);
-    ctx.moveTo(0, cy); ctx.lineTo(width, cy);
-    ctx.stroke();
+    // Historique pour calcul vitesse au lâcher
+    dragHistory.push({ angle: newAngle, time: performance.now() });
+    if (dragHistory.length > 8) dragHistory.shift();
+
+    // Synchroniser les clones sur le master pendant le drag
+    for (let k = 1; k < pendulums.length; k++) {
+        pendulums[k][dragging].a = newAngle;
+    }
+
+    trail = [];
 }
 
-function loop() {
-    update();
-    draw();
-    requestAnimationFrame(loop);
+function pointerUp() {
+    if (dragging === -1) return;
+
+    // Calculer vitesse angulaire à partir de l'historique de drag
+    let angularVel = 0;
+    if (dragHistory.length >= 2) {
+        const oldest = dragHistory[0];
+        const newest = dragHistory[dragHistory.length - 1];
+        const dt = (newest.time - oldest.time) / 1000; // en secondes
+        if (dt > 0.001) {
+            // Différence d'angle avec gestion du saut ±π
+            let dAngle = newest.angle - oldest.angle;
+            while (dAngle > Math.PI) dAngle -= 2 * Math.PI;
+            while (dAngle < -Math.PI) dAngle += 2 * Math.PI;
+            angularVel = (dAngle / dt) * 0.016; // 0.016 ≈ 60fps frame time
+        }
+    }
+    dragHistory = [];
+
+    // Appliquer vitesse au bras dragué, reset les autres
+    pendulums[0].forEach((a, idx) => {
+        a.v = idx === dragging ? Math.max(-15, Math.min(15, angularVel)) : 0;
+    });
+
+    // Si Butterfly : Reset des clones sur le master + bruit
+    if (settings.butterfly) {
+        initButterflyClones();
+        for (let k = 1; k < pendulums.length; k++) {
+            pendulums[k].forEach((arm, idx) => {
+                arm.a = pendulums[0][idx].a + (Math.random() - 0.5) * 0.001;
+                arm.v = 0;
+            });
+        }
+    }
+    dragging = -1;
 }
 
-// Start
-bindStaticUIEvents();
-initSimulation();
-loop();
+function onKey(e) {
+    switch (e.code) {
+        case 'KeyT': {
+            const themeList = Object.keys(themes);
+            const idx = themeList.indexOf(settings.theme);
+            applyTheme(themeList[(idx + 1) % themeList.length]);
+            break;
+        }
+        case 'KeyH':
+            settings.showHUD = !settings.showHUD;
+            syncUIToSettings();
+            break;
+        default:
+            if (e.key >= '1' && e.key <= '6') {
+                const idx = parseInt(e.key) - 1;
+                if (idx < scenarioKeys.length) applyScenario(scenarioKeys[idx]);
+            }
+    }
+}
+
+Engine.register({
+    id: 'pendulum',
+    name: 'Pendule',
+    icon: '🌀',
+    hint: 'glissez les masses · [?] aide',
+    help: [
+        ['T', 'Changer de thème'],
+        ['H', 'Afficher / Masquer HUD'],
+        ['1 – 6', 'Charger un scénario'],
+    ],
+    init() {
+        bindPanel();
+        initSimulation();
+    },
+    activate() {
+        document.body.style.backgroundColor = themes[settings.theme].bg;
+        if (settings.audioEnabled) startAudio();
+    },
+    deactivate() {
+        stopAudio();
+    },
+    resize(w, h) {
+        width = w; height = h;
+        cx = w / 2;
+        cy = h / 3;
+        generateStars();
+        if (settings.multiMode) initMultiPendulums();
+    },
+    update,
+    draw,
+    reset() { initSimulation(); },
+    clear() {
+        trail = [];
+        multiPendulums.forEach(mp => mp.trail = []);
+    },
+    pointerDown, pointerMove, pointerUp,
+    onKey,
+});
+})();

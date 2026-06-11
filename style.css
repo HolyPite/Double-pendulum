@@ -367,7 +367,113 @@ kbd {
     line-height: 1.4;
 }
 
+/* =============================================
+   SÉLECTEUR DE SIMULATIONS
+   ============================================= */
+
+#simSwitcher {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 5px;
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08);
+    z-index: 500;
+}
+
+.sim-tab {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.55);
+    padding: 6px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    transition: background 0.2s, color 0.2s;
+}
+
+.sim-tab:hover { color: #fff; }
+.sim-tab.active {
+    background: rgba(52, 152, 219, 0.85);
+    color: #fff;
+}
+
+/* =============================================
+   PANNEAUX PAR SIMULATION
+   ============================================= */
+
+.sim-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.sim-panel.hidden { display: none; }
+
+.panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+
+.panel-body::-webkit-scrollbar { width: 5px; }
+.panel-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+/* Sélecteur de matériaux (Sable) */
+.mat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+}
+
+.mat-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    border-radius: 6px;
+    padding: 7px 10px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.mat-btn:hover { background: rgba(255,255,255,0.1); }
+.mat-btn.active {
+    border-color: #3498db;
+    background: rgba(52, 152, 219, 0.25);
+}
+
+.mat-btn .swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
 /* Responsive: panneau plus étroit sur petits écrans */
+@media (max-width: 640px) {
+    #simSwitcher {
+        top: unset;
+        bottom: 12px;
+        max-width: calc(100vw - 24px);
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+}
+
 @media (max-width: 400px) {
     #sidePanel { width: 100%; }
     #controls { right: 16px; min-width: unset; }

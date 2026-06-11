@@ -3,42 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simulateur de Double Pendule</title>
-    <link rel="stylesheet" href="style.css?v=2">
+    <title>Laboratoire de Simulations</title>
+    <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
     <div id="container">
         <canvas id="canvas"></canvas>
 
+        <!-- Sélecteur de simulations (généré par le moteur) -->
+        <div id="simSwitcher"></div>
+
         <!-- Barre de contrôle compacte en haut à gauche -->
         <div id="controls">
             <div id="controls-title">
-                <span>Double Pendule</span>
-                <span id="controls-hint">glissez les masses · [?] aide</span>
+                <span id="simTitle">…</span>
+                <span id="controls-hint">[?] aide</span>
             </div>
             <div class="button-group">
                 <button id="pauseBtn">⏸ Pause</button>
                 <button id="resetBtn">↺ Reset</button>
-                <button id="resetTrail">✕ Trace</button>
+                <button id="clearBtn">✕ Effacer</button>
                 <button id="settingsBtn">⚙ Réglages</button>
             </div>
         </div>
 
-        <!-- Aide clavier (overlay) -->
+        <!-- Aide clavier (overlay, contenu généré par le moteur) -->
         <div id="helpOverlay" class="hidden">
             <div id="helpBox">
                 <h3>Raccourcis clavier</h3>
-                <table>
-                    <tr><td><kbd>Espace</kbd></td><td>Pause / Reprendre</td></tr>
-                    <tr><td><kbd>R</kbd></td><td>Réinitialiser</td></tr>
-                    <tr><td><kbd>C</kbd></td><td>Effacer la trace</td></tr>
-                    <tr><td><kbd>T</kbd></td><td>Changer de thème</td></tr>
-                    <tr><td><kbd>H</kbd></td><td>Afficher / Masquer HUD</td></tr>
-                    <tr><td><kbd>F</kbd></td><td>Plein écran</td></tr>
-                    <tr><td><kbd>1 – 6</kbd></td><td>Charger un scénario</td></tr>
-                    <tr><td><kbd>?</kbd></td><td>Cette aide</td></tr>
-                    <tr><td><kbd>Echap</kbd></td><td>Fermer</td></tr>
-                </table>
+                <table id="helpTable"></table>
                 <p style="margin-top:10px; opacity:0.6; font-size:0.8rem;">Cliquer en dehors pour fermer</p>
             </div>
         </div>
@@ -46,138 +39,231 @@
         <!-- Panneau latéral coulissant -->
         <div id="sidePanel" class="hidden">
             <div id="sidePanelHeader">
-                <span>⚙ Configuration</span>
+                <span id="sidePanelTitle">⚙ Configuration</span>
                 <button id="closeSidePanel" title="Fermer (Echap)">&times;</button>
             </div>
 
-            <!-- Onglets -->
-            <div id="tabs">
-                <button class="tab active" data-tab="structure">Structure</button>
-                <button class="tab" data-tab="visuel">Visuel</button>
-                <button class="tab" data-tab="physique">Physique</button>
-                <button class="tab" data-tab="avance">Avancé</button>
-            </div>
-
-            <div id="tabContent">
-
-                <!-- Onglet Structure -->
-                <div class="tab-pane active" id="tab-structure">
-                    <div class="setting-group">
-                        <h3>Nombre de bras</h3>
-                        <label>Bras: <span id="val_n">2</span></label>
-                        <input type="range" id="inp_n" min="1" max="5" value="2" step="1">
-                    </div>
-                    <div class="setting-group">
-                        <h3>Scénarios</h3>
-                        <select id="sel_scenario"></select>
-                        <button id="btn_load_scenario" class="btn-full">Charger le scénario</button>
-                    </div>
-                    <div class="setting-group">
-                        <h3>Détails des bras</h3>
-                        <div id="arm-details"></div>
-                    </div>
+            <!-- ============ PANNEAU : PENDULE ============ -->
+            <div class="sim-panel hidden" id="panel-pendulum">
+                <div id="tabs">
+                    <button class="tab active" data-tab="structure">Structure</button>
+                    <button class="tab" data-tab="visuel">Visuel</button>
+                    <button class="tab" data-tab="physique">Physique</button>
+                    <button class="tab" data-tab="avance">Avancé</button>
                 </div>
 
-                <!-- Onglet Visuel -->
-                <div class="tab-pane hidden" id="tab-visuel">
+                <div id="tabContent">
+
+                    <!-- Onglet Structure -->
+                    <div class="tab-pane active" id="tab-structure">
+                        <div class="setting-group">
+                            <h3>Nombre de bras</h3>
+                            <label>Bras: <span id="val_n">2</span></label>
+                            <input type="range" id="inp_n" min="1" max="5" value="2" step="1">
+                        </div>
+                        <div class="setting-group">
+                            <h3>Scénarios</h3>
+                            <select id="sel_scenario"></select>
+                            <button id="btn_load_scenario" class="btn-full">Charger le scénario</button>
+                        </div>
+                        <div class="setting-group">
+                            <h3>Détails des bras</h3>
+                            <div id="arm-details"></div>
+                        </div>
+                    </div>
+
+                    <!-- Onglet Visuel -->
+                    <div class="tab-pane hidden" id="tab-visuel">
+                        <div class="setting-group">
+                            <h3>Thème</h3>
+                            <select id="sel_theme"></select>
+                        </div>
+                        <div class="setting-group">
+                            <h3>Trace</h3>
+                            <label>Style:</label>
+                            <select id="sel_trail">
+                                <option value="solid">Solide</option>
+                                <option value="speed">Vitesse (bleu→rouge)</option>
+                                <option value="rainbow">Arc-en-ciel (temps)</option>
+                                <option value="rainbow-cycle">Arc-en-ciel (cyclique)</option>
+                            </select>
+                            <label>Longueur: <span id="val_trlen">500</span></label>
+                            <input type="range" id="inp_trlen" min="0" max="1000" step="10" value="500">
+                        </div>
+                        <div class="setting-group">
+                            <h3>Effet Papillon 🦋</h3>
+                            <label class="toggle-label">
+                                <input type="checkbox" id="chk_bf"> Activer les clones
+                            </label>
+                            <div id="bf_options" class="hidden-opt">
+                                <label>Clones: <span id="val_bf_count">50</span></label>
+                                <input type="range" id="inp_bf_count" min="10" max="200" step="10" value="50">
+                            </div>
+                        </div>
+                        <div class="setting-group">
+                            <h3>HUD</h3>
+                            <label class="toggle-label">
+                                <input type="checkbox" id="chk_hud" checked> Afficher FPS + énergie
+                            </label>
+                            <label class="toggle-label" style="margin-top:8px;">
+                                <input type="checkbox" id="chk_energy_graph"> Graphe énergie (bas)
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Onglet Physique -->
+                    <div class="tab-pane hidden" id="tab-physique">
+                        <div class="setting-group">
+                            <label>Vitesse simulation: <span id="val_spd">5</span>×</label>
+                            <input type="range" id="inp_spd" min="1" max="20" step="1" value="5">
+                            <label>Gravité: <span id="val_g">0.8</span></label>
+                            <input type="range" id="inp_g" min="0" max="2" step="0.05" value="0.8">
+                            <label>Résistance air: <span id="val_f">0.1</span>%</label>
+                            <input type="range" id="inp_f" min="0" max="100" step="0.5" value="0.1">
+                        </div>
+                    </div>
+
+                    <!-- Onglet Avancé -->
+                    <div class="tab-pane hidden" id="tab-avance">
+                        <div class="setting-group">
+                            <h3>Sonification 🔊</h3>
+                            <p class="hint">Chaque bras génère une fréquence basée sur sa vitesse angulaire.</p>
+                            <label class="toggle-label">
+                                <input type="checkbox" id="chk_audio"> Activer l'audio
+                            </label>
+                            <div id="audio_options" class="hidden-opt">
+                                <label>Volume: <span id="val_audio_vol">15</span>%</label>
+                                <input type="range" id="inp_audio_vol" min="0" max="100" step="5" value="15">
+                            </div>
+                        </div>
+                        <div class="setting-group">
+                            <h3>Multi-Pendules</h3>
+                            <p class="hint">Plusieurs pendules indépendants côte à côte, chacun avec sa propre couleur.</p>
+                            <label class="toggle-label">
+                                <input type="checkbox" id="chk_multi"> Mode Multi-Pendules
+                            </label>
+                            <div id="multi_options" class="hidden-opt">
+                                <label>Nombre: <span id="val_multi_count">3</span></label>
+                                <input type="range" id="inp_multi_count" min="2" max="8" step="1" value="3">
+                            </div>
+                        </div>
+                        <div class="setting-group">
+                            <h3>Mode Attracteur</h3>
+                            <p class="hint">Trace infinie, fond assombri — idéal pour les captures d'art.</p>
+                            <label class="toggle-label">
+                                <input type="checkbox" id="chk_attractor"> Mode Attracteur
+                            </label>
+                        </div>
+                        <div class="setting-group">
+                            <h3>Export</h3>
+                            <button id="btn_export_png" class="btn-full">💾 Sauvegarder en PNG</button>
+                        </div>
+                        <div class="setting-group">
+                            <h3>Presets personnalisés</h3>
+                            <div style="display:flex; gap:6px; margin-bottom:8px;">
+                                <input type="text" id="inp_preset_name" placeholder="Nom du preset" style="flex:1">
+                                <button id="btn_save_preset">Sauvegarder</button>
+                            </div>
+                            <div id="custom_presets"></div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ============ PANNEAU : FLUIDE ============ -->
+            <div class="sim-panel hidden" id="panel-fluid">
+                <div class="panel-body">
                     <div class="setting-group">
-                        <h3>Thème</h3>
-                        <select id="sel_theme"></select>
+                        <h3>Souris</h3>
+                        <p class="hint">Glissez sur le canvas pour injecter de l'encre et pousser le fluide.</p>
+                        <label>Force: <span id="fl_val_force">6</span></label>
+                        <input type="range" id="fl_force" min="1" max="20" step="1" value="6">
+                        <label>Taille du jet: <span id="fl_val_brush">3</span></label>
+                        <input type="range" id="fl_brush" min="1" max="8" step="1" value="3">
                     </div>
                     <div class="setting-group">
-                        <h3>Trace</h3>
-                        <label>Style:</label>
-                        <select id="sel_trail">
-                            <option value="solid">Solide</option>
-                            <option value="speed">Vitesse (bleu→rouge)</option>
-                            <option value="rainbow">Arc-en-ciel (temps)</option>
-                            <option value="rainbow-cycle">Arc-en-ciel (cyclique)</option>
+                        <h3>Physique</h3>
+                        <label>Viscosité: <span id="fl_val_visc">0</span></label>
+                        <input type="range" id="fl_visc" min="0" max="20" step="1" value="0">
+                        <label>Tourbillons: <span id="fl_val_vort">2</span></label>
+                        <input type="range" id="fl_vort" min="0" max="10" step="0.5" value="2">
+                        <label>Persistance encre: <span id="fl_val_diss">99.5</span>%</label>
+                        <input type="range" id="fl_diss" min="90" max="100" step="0.1" value="99.5">
+                    </div>
+                    <div class="setting-group">
+                        <h3>Couleur</h3>
+                        <label class="toggle-label">
+                            <input type="checkbox" id="fl_rainbow" checked> Arc-en-ciel automatique
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============ PANNEAU : SABLE ============ -->
+            <div class="sim-panel hidden" id="panel-sand">
+                <div class="panel-body">
+                    <div class="setting-group">
+                        <h3>Matériau</h3>
+                        <div class="mat-grid" id="sd_materials"></div>
+                    </div>
+                    <div class="setting-group">
+                        <h3>Pinceau</h3>
+                        <label>Taille: <span id="sd_val_brush">4</span></label>
+                        <input type="range" id="sd_brush" min="1" max="20" step="1" value="4">
+                    </div>
+                    <div class="setting-group">
+                        <h3>Simulation</h3>
+                        <label>Vitesse: <span id="sd_val_speed">2</span>×</label>
+                        <input type="range" id="sd_speed" min="1" max="6" step="1" value="2">
+                        <p class="hint">Astuce : mettez en pause pour construire tranquillement, le pinceau reste actif.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============ PANNEAU : BOIDS ============ -->
+            <div class="sim-panel hidden" id="panel-boids">
+                <div class="panel-body">
+                    <div class="setting-group">
+                        <h3>Population</h3>
+                        <label>Boids: <span id="bd_val_count">150</span></label>
+                        <input type="range" id="bd_count" min="10" max="500" step="10" value="150">
+                        <label>Vision: <span id="bd_val_vision">60</span></label>
+                        <input type="range" id="bd_vision" min="20" max="150" step="5" value="60">
+                        <label>Vitesse max: <span id="bd_val_speed">3.5</span></label>
+                        <input type="range" id="bd_speed" min="1" max="8" step="0.5" value="3.5">
+                    </div>
+                    <div class="setting-group">
+                        <h3>Règles de la nuée</h3>
+                        <label>Cohésion: <span id="bd_val_coh">0.5</span></label>
+                        <input type="range" id="bd_coh" min="0" max="2" step="0.1" value="0.5">
+                        <label>Alignement: <span id="bd_val_ali">0.6</span></label>
+                        <input type="range" id="bd_ali" min="0" max="2" step="0.1" value="0.6">
+                        <label>Séparation: <span id="bd_val_sep">1.4</span></label>
+                        <input type="range" id="bd_sep" min="0" max="3" step="0.1" value="1.4">
+                    </div>
+                    <div class="setting-group">
+                        <h3>Souris</h3>
+                        <select id="bd_mouse">
+                            <option value="attract">Attire la nuée</option>
+                            <option value="repel">Repousse la nuée</option>
+                            <option value="none">Aucun effet</option>
                         </select>
-                        <label>Longueur: <span id="val_trlen">500</span></label>
-                        <input type="range" id="inp_trlen" min="0" max="1000" step="10" value="500">
-                    </div>
-                    <div class="setting-group">
-                        <h3>Effet Papillon 🦋</h3>
                         <label class="toggle-label">
-                            <input type="checkbox" id="chk_bf"> Activer les clones
-                        </label>
-                        <div id="bf_options" class="hidden-opt">
-                            <label>Clones: <span id="val_bf_count">50</span></label>
-                            <input type="range" id="inp_bf_count" min="10" max="200" step="10" value="50">
-                        </div>
-                    </div>
-                    <div class="setting-group">
-                        <h3>HUD</h3>
-                        <label class="toggle-label">
-                            <input type="checkbox" id="chk_hud" checked> Afficher FPS + énergie
-                        </label>
-                        <label class="toggle-label" style="margin-top:8px;">
-                            <input type="checkbox" id="chk_energy_graph"> Graphe énergie (bas)
+                            <input type="checkbox" id="bd_trails" checked> Traînées
                         </label>
                     </div>
                 </div>
-
-                <!-- Onglet Physique -->
-                <div class="tab-pane hidden" id="tab-physique">
-                    <div class="setting-group">
-                        <label>Vitesse simulation: <span id="val_spd">5</span>×</label>
-                        <input type="range" id="inp_spd" min="1" max="20" step="1" value="5">
-                        <label>Gravité: <span id="val_g">0.8</span></label>
-                        <input type="range" id="inp_g" min="0" max="2" step="0.05" value="0.8">
-                        <label>Résistance air: <span id="val_f">0.1</span>%</label>
-                        <input type="range" id="inp_f" min="0" max="100" step="0.5" value="0.1">
-                    </div>
-                </div>
-
-                <!-- Onglet Avancé -->
-                <div class="tab-pane hidden" id="tab-avance">
-                    <div class="setting-group">
-                        <h3>Sonification 🔊</h3>
-                        <p class="hint">Chaque bras génère une fréquence basée sur sa vitesse angulaire.</p>
-                        <label class="toggle-label">
-                            <input type="checkbox" id="chk_audio"> Activer l'audio
-                        </label>
-                        <div id="audio_options" class="hidden-opt">
-                            <label>Volume: <span id="val_audio_vol">15</span>%</label>
-                            <input type="range" id="inp_audio_vol" min="0" max="100" step="5" value="15">
-                        </div>
-                    </div>
-                    <div class="setting-group">
-                        <h3>Multi-Pendules</h3>
-                        <p class="hint">Plusieurs pendules indépendants côte à côte, chacun avec sa propre couleur.</p>
-                        <label class="toggle-label">
-                            <input type="checkbox" id="chk_multi"> Mode Multi-Pendules
-                        </label>
-                        <div id="multi_options" class="hidden-opt">
-                            <label>Nombre: <span id="val_multi_count">3</span></label>
-                            <input type="range" id="inp_multi_count" min="2" max="8" step="1" value="3">
-                        </div>
-                    </div>
-                    <div class="setting-group">
-                        <h3>Mode Attracteur</h3>
-                        <p class="hint">Trace infinie, fond assombri — idéal pour les captures d'art.</p>
-                        <label class="toggle-label">
-                            <input type="checkbox" id="chk_attractor"> Mode Attracteur
-                        </label>
-                    </div>
-                    <div class="setting-group">
-                        <h3>Export</h3>
-                        <button id="btn_export_png" class="btn-full">💾 Sauvegarder en PNG</button>
-                    </div>
-                    <div class="setting-group">
-                        <h3>Presets personnalisés</h3>
-                        <div style="display:flex; gap:6px; margin-bottom:8px;">
-                            <input type="text" id="inp_preset_name" placeholder="Nom du preset" style="flex:1">
-                            <button id="btn_save_preset">Sauvegarder</button>
-                        </div>
-                        <div id="custom_presets"></div>
-                    </div>
-                </div>
-
             </div>
+
         </div>
     </div>
 
-    <script src="script.js?v=2"></script>
+    <script src="js/engine.js?v=3"></script>
+    <script src="js/sims/pendulum.js?v=3"></script>
+    <script src="js/sims/fluid.js?v=3"></script>
+    <script src="js/sims/sand.js?v=3"></script>
+    <script src="js/sims/boids.js?v=3"></script>
+    <script>Engine.start('pendulum');</script>
 </body>
 </html>
