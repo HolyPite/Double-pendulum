@@ -53,6 +53,12 @@ Le site est devenu un **laboratoire de simulations** : un moteur commun (`js/eng
 - **Interaction** : appâter la colonie à la souris.
 - **Paramètres** : 2000-30000 agents, angle/distance des capteurs, virage, dépôt, persistance.
 
+### 🐜 Fourmis (stigmergie)
+- **Modèle** : rétroaction stigmergique ∂τ/∂t = Δτ + D∇²τ − ρτ (recrutement + diffusion − évaporation), double phéromone par espèce (maison / nourriture) avec dépôt décroissant → gradient vers la source.
+- **Interaction** : 4 outils — placer des nids, peindre de la nourriture, dessiner des obstacles, gommer. Jusqu'à 3 espèces (couleurs distinctes) en concurrence pour les mêmes sources.
+- **Paramètres** : Δτ (recrutement), D (diffusion), ρ (évaporation), fourmis/nid, vitesse, portée des capteurs.
+- **Lecture** : tableau des récoltes par espèce (compétition en direct), pistes vives vers la nourriture, pistes maison discrètes.
+
 ## Architecture
 - **Tech Stack** : Vanilla JS, HTML5 Canvas, CSS3 — zéro dépendance, fonctionne en `file://`.
 - **Entrée** : `index.html` → `js/engine.js` → `js/sims/*.js` → `Engine.start('pendulum')`.

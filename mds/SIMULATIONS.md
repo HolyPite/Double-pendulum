@@ -15,6 +15,7 @@ Chaque simulation doit être **interactive** (souris/clavier) et avoir des **rè
 | 🔲 Vie (Conway B/S) | dessiner / gommer des cellules | règles B/S librement éditables, 7 presets, densité |
 | 🌊 Ondes | gouttes, murs, sources oscillantes | vitesse, amortissement, fréquence, double fente |
 | 🍄 Physarum | appâter à la phéromone | capteurs (angle/distance), virage, dépôt, évaporation |
+| 🐜 Fourmis | placer nids/nourriture/obstacles, espèces en concurrence | recrutement Δτ, diffusion D, évaporation ρ, capteurs, vitesse |
 
 ## 🧪 Particules & matière
 
@@ -34,7 +35,6 @@ Chaque simulation doit être **interactive** (souris/clavier) et avoir des **rè
 
 ## 🐜 Agents & vie artificielle
 
-- **Fourmis + phéromones** ●●○ — colonie qui trouve la nourriture posée à la souris, pistes qui s'évaporent (cousin du Physarum, avec nid + nourriture).
 - **Écosystème prédateur-proie** ●●○ — herbe/lapins/renards avec énergie et reproduction ; courbes de population en temps réel (réutiliser le graphe d'énergie du pendule).
 - **Trafic routier** ●○○ — modèle Nagel-Schreckenberg, embouteillages fantômes, slider densité/vitesse max.
 - **Foule / évacuation** ●●● — social forces, sorties qu'on déplace, panique.
