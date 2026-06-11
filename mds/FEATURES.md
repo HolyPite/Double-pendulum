@@ -28,6 +28,31 @@ Le site est devenu un **laboratoire de simulations** : un moteur commun (`js/eng
 - **Interaction** : maintenir le clic pour attirer ou repousser la nuée.
 - **Paramètres** : population (10-500), vision, vitesse max, poids des 3 règles, traînées.
 
+### 🧬 Particules (Particle Life)
+- **Modèle** : N familles de particules, matrice d'attraction/répulsion asymétrique → "créatures" émergentes.
+- **Interaction** : matrice éditable cellule par cellule (clic +0.25 / clic droit −0.25), randomiser, disperser à la souris.
+- **Perf** : grille spatiale (linked lists), monde torique, jusqu'à 1500 particules.
+
+### 🦠 Réaction (Gray-Scott)
+- **Modèle** : réaction-diffusion U+2V→3V, laplacien 9 points, monde torique.
+- **Interaction** : dessiner des graines de motif au pinceau.
+- **Paramètres** : feed/kill fins, 7 presets (corail, mitose, labyrinthe, trous, vagues, solitons, vers).
+
+### 🔲 Vie (Conway généralisé)
+- **Modèle** : automate B/S avec règles librement éditables (boutons 0-8) + 7 presets (Life, HighLife, Day&Night, Seeds, Labyrinthe, Corail, Réplicateur).
+- **Interaction** : dessiner (clic), gommer (clic droit), soupe aléatoire à densité réglable.
+- **Visuel** : coloration par âge des cellules, compteur de générations.
+
+### 🌊 Ondes
+- **Modèle** : équation d'onde 2D discrétisée, amortissement, bords absorbants.
+- **Interaction** : 4 outils — goutte, mur dessinable, source oscillante (max 8), gomme.
+- **Expériences** : preset double fente (interférences).
+
+### 🍄 Physarum
+- **Modèle** : slime mold de Jeff Jones — agents à 3 capteurs de phéromone, dépôt + diffusion + évaporation.
+- **Interaction** : appâter la colonie à la souris.
+- **Paramètres** : 2000-30000 agents, angle/distance des capteurs, virage, dépôt, persistance.
+
 ## Architecture
 - **Tech Stack** : Vanilla JS, HTML5 Canvas, CSS3 — zéro dépendance, fonctionne en `file://`.
 - **Entrée** : `index.html` → `js/engine.js` → `js/sims/*.js` → `Engine.start('pendulum')`.
