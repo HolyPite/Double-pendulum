@@ -515,6 +515,31 @@ kbd {
     color: #fff;
 }
 
+/* Boutons d'outils (Ondes, etc.) */
+.tool-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.tool-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    border-radius: 6px;
+    padding: 7px 4px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.tool-btn:hover { background: rgba(255,255,255,0.1); }
+.tool-btn.active {
+    border-color: #3498db;
+    background: rgba(52, 152, 219, 0.25);
+}
+
 /* Responsive: panneau plus étroit sur petits écrans */
 @media (max-width: 640px) {
     #simSwitcher {
