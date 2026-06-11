@@ -463,6 +463,31 @@ kbd {
     border: 1px solid rgba(255,255,255,0.2);
 }
 
+/* Matrice d'interaction (Particle Life) */
+.pl-matrix {
+    display: grid;
+    gap: 3px;
+}
+
+.pl-swatch {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 4px;
+    align-self: center;
+}
+
+.pl-cell {
+    width: 100%;
+    aspect-ratio: 1;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.08s;
+}
+
+.pl-cell:hover { transform: scale(1.12); border-color: rgba(255,255,255,0.4); }
+
 /* Responsive: panneau plus étroit sur petits écrans */
 @media (max-width: 640px) {
     #simSwitcher {
