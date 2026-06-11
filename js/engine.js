@@ -159,6 +159,8 @@ const Engine = (() => {
     });
 
     // --- SOURIS (transmise à la sim active) ---
+    // Pas de menu contextuel : le clic droit est un outil (gomme, etc.)
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => {
         if (active && active.pointerDown) active.pointerDown(e.clientX, e.clientY, e);
     });

@@ -313,6 +313,37 @@
                 </div>
             </div>
 
+            <!-- ============ PANNEAU : JEU DE LA VIE ============ -->
+            <div class="sim-panel hidden" id="panel-gameoflife">
+                <div class="panel-body">
+                    <div class="setting-group">
+                        <h3>Règles connues</h3>
+                        <select id="gol_preset"></select>
+                    </div>
+                    <div class="setting-group">
+                        <h3>Règles personnalisées</h3>
+                        <p class="hint">Une cellule <b>naît</b> (B) ou <b>survit</b> (S) selon son nombre de voisins vivants. Inventez votre automate !</p>
+                        <label>Naissance (B):</label>
+                        <div class="rule-row" id="gol_born"></div>
+                        <label style="margin-top:8px;">Survie (S):</label>
+                        <div class="rule-row" id="gol_survive"></div>
+                    </div>
+                    <div class="setting-group">
+                        <h3>Simulation</h3>
+                        <label>Générations / frame: <span id="gol_val_speed">1</span></label>
+                        <input type="range" id="gol_speed" min="1" max="8" step="1" value="1">
+                        <label>Pinceau: <span id="gol_val_brush">1</span></label>
+                        <input type="range" id="gol_brush" min="0" max="8" step="1" value="1">
+                    </div>
+                    <div class="setting-group">
+                        <h3>Soupe aléatoire</h3>
+                        <label>Densité: <span id="gol_val_density">15</span>%</label>
+                        <input type="range" id="gol_density" min="3" max="60" step="1" value="15">
+                        <button id="gol_soup" class="btn-full">🎲 Générer une soupe</button>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -323,6 +354,7 @@
     <script src="js/sims/boids.js?v=3"></script>
     <script src="js/sims/particlelife.js?v=3"></script>
     <script src="js/sims/grayscott.js?v=3"></script>
+    <script src="js/sims/gameoflife.js?v=3"></script>
     <script>Engine.start('pendulum');</script>
 </body>
 </html>

@@ -488,6 +488,33 @@ kbd {
 
 .pl-cell:hover { transform: scale(1.12); border-color: rgba(255,255,255,0.4); }
 
+/* Boutons de règles B/S (Jeu de la Vie) */
+.rule-row {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.rule-btn {
+    flex: 1;
+    aspect-ratio: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.6);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0;
+    transition: background 0.15s;
+}
+
+.rule-btn:hover { background: rgba(255,255,255,0.12); }
+.rule-btn.active {
+    background: rgba(52, 152, 219, 0.7);
+    border-color: #3498db;
+    color: #fff;
+}
+
 /* Responsive: panneau plus étroit sur petits écrans */
 @media (max-width: 640px) {
     #simSwitcher {
